@@ -127,8 +127,30 @@ function repairOptionals(node) {
     }
 }
 
+// A seed widget declared with control_after_generate gets a SECOND widget of
+// its own, sitting right after it. Hiding the seed alone leaves that one
+// stranded on screen with nothing left to control, so it goes wherever the
+// seed goes.
+function companions(node, name) {
+    const list = node.widgets || [];
+    const i = list.findIndex((w) => w.name === name);
+    if (i < 0) return [list[i]].filter(Boolean);
+    const out = [list[i]];
+    for (let j = i + 1; j < list.length; j++) {
+        if (/control.*(generate|after|before)/i.test(list[j].name || "")) {
+            out.push(list[j]);
+        } else {
+            break;
+        }
+    }
+    return out;
+}
+
 function setVisible(node, name, visible) {
-    const w = widget(node, name);
+    for (const w of companions(node, name)) applyVisible(w, visible);
+}
+
+function applyVisible(w, visible) {
     if (!w) return;
     if (visible) {
         if (w._ucuType !== undefined) {
