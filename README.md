@@ -83,7 +83,8 @@ out of it, and only ever cuts — nothing is resampled a second time.
 | `shortest_side` | `min(w, h)` | feeding a model with a minimum edge |
 | `longest_side` | `max(w, h)` | fitting a print or a screen |
 | `megapixels` | total pixel count | staying inside a VRAM or upload budget |
-| `width_height` | **an exact box** | the output size is non-negotiable |
+| `width_height` | **an exact box**, cropped for you | the output size is non-negotiable |
+| `custom` | the same box, **crop is yours** | you want to frame it yourself |
 
 Percent and factor are the same arithmetic, offered both ways because which one
 feels natural depends on the task. Every mode downscales when you give it a value
@@ -95,10 +96,16 @@ covered, then crops to it, so you get exactly those dimensions from any source s
 It brings its own crop along and folds the crop block away — two crops arguing over
 one result would be nobody's idea of clear.
 
-That is *not* the same as `crop_ratio = custom`, which only cuts a window out of
-whatever the upscale happened to produce and clamps per axis when that was too small
-— ask both for a 3000×3000 square from a portrait source and only `width_height`
-gives you a square.
+**`custom` is the same box with the crop left to you** — the JPS split, where sizing
+and framing are separate decisions. It scales until the box is covered and stops
+there, so you switch the crop block on and frame it however you like, or leave it off
+and keep the covered size. Same widgets (`target_width` / `target_height`), same
+arithmetic; the two part ways only at the crop.
+
+Neither is the same as `crop_ratio = custom`, which only cuts a window out of whatever
+the upscale happened to produce and clamps per axis when that was too small — ask both
+for a 3000×3000 square from a portrait source and only `width_height` gives you a
+square.
 
 `multiple_of` snaps the result so it survives a VAE. **8** suits SD, SDXL and Flux;
 `off` gives you the exact number you asked for, which is fine when the image is
@@ -125,10 +132,16 @@ Each format is written the way people say it — 4:5 is portrait, 16:9 is landsc
 and `crop_orientation` flips whichever you pick, so there are no mirrored duplicates
 in the list. Picking a format takes the **largest window of that shape that fits**.
 
-`crop_position` (center / top / bottom / left / right) plus `crop_offset_x` and
-`crop_offset_y` decide what survives — the JPS controls, with one offset per axis.
+`crop_position` (center / top / bottom / left / right / **random**) plus
+`crop_offset_x` and `crop_offset_y` decide what survives — the JPS controls, with one offset per axis.
 Each is clamped to the slack the anchor leaves, so the window can never wander off
 the image.
+
+**`random`** places the window anywhere it fits, driven by `crop_seed` — for varying
+the framing across a batch or building a dataset. It is seeded rather than
+free-running, so the preview shows the window you will actually get and a result you
+liked can be reproduced. Set `crop_seed`'s control-after-generate to *randomize* for a
+fresh one each run.
 
 `crop_orientation` defaults to **`auto`**, which follows the frame: a portrait shot
 gets a portrait crop, a landscape one gets landscape. On a mixed batch that keeps

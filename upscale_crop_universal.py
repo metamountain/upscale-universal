@@ -27,6 +27,7 @@ All torch -> runs on the GPU and handles whole batches.
 
 import base64
 import io
+import random
 
 import numpy as np
 import torch
@@ -54,7 +55,13 @@ def _device():
 # ---------------------------------------------------------------- sizing
 
 TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
-                "longest_side", "megapixels", "width_height"]
+                "longest_side", "megapixels", "width_height", "custom"]
+
+# The two box modes share target_width/target_height and the same cover
+# arithmetic. They differ in one thing only: width_height crops to the box for
+# you, custom leaves the crop entirely yours -- the JPS way, where sizing and
+# framing are separate decisions you make one after the other.
+BOX_MODES = ("width_height", "custom")
 
 MULTIPLES = ["off", "2", "4", "8", "16", "32", "64"]
 
@@ -78,7 +85,7 @@ RATIOS = {
 }
 RATIO_NAMES = ["custom"] + list(RATIOS.keys())
 
-CROP_POSITIONS = ["center", "top", "bottom", "left", "right"]
+CROP_POSITIONS = ["center", "top", "bottom", "left", "right", "random"]
 ORIENTATIONS = ["auto", "portrait", "landscape"]
 
 # Sensible first pick for the model widget. ComfyUI shows whatever the folder
@@ -137,10 +144,10 @@ def _scale_for(w, h, mode, percent, factor, shortest, longest, megapixels,
         return longest / max(1, max(w, h))
     if mode == "megapixels":
         return (megapixels * 1e6 / max(1, w * h)) ** 0.5
-    if mode == "width_height":
-        # Cover: scale until the box is filled on both axes, then the crop
-        # that always follows takes the box out of it. Fitting inside instead
-        # would leave bars, and this node never pads.
+    if mode in BOX_MODES:
+        # Cover: scale until the box is filled on both axes. width_height then
+        # crops to it automatically; custom hands that decision to you. Fitting
+        # inside instead would leave bars, and this node never pads.
         return max(box_w / max(1, w), box_h / max(1, h))
     return 1.0
 
@@ -151,7 +158,7 @@ def _target(w, h, k, mult):
 
 # ---------------------------------------------------------------- crop rect
 
-def _crop_rect(w, h, ratio, orientation, cw, ch, position, off_x, off_y):
+def _crop_rect(w, h, ratio, orientation, cw, ch, position, off_x, off_y, seed=0):
     """The surviving region as normalised 0..1 (x0, y0, x1, y1).
 
     Normalised rather than pixels so the identical geometry can be applied to
@@ -202,6 +209,15 @@ def _crop_rect(w, h, ratio, orientation, cw, ch, position, off_x, off_y):
         x0, y0 = slack_x / 2.0, 0.0
     elif position == "bottom":
         x0, y0 = slack_x / 2.0, slack_y
+    elif position == "random":
+        # Seeded, not free-running: a fixed seed has to give the same window
+        # every time or the preview would show one crop and the run produce
+        # another, and re-queueing a graph would never reproduce a result you
+        # liked. Turn crop_seed's control_after_generate to 'randomize' for a
+        # fresh window per run.
+        rng = random.Random(int(seed))
+        x0 = rng.uniform(0.0, slack_x)
+        y0 = rng.uniform(0.0, slack_y)
     else:  # center
         x0, y0 = slack_x / 2.0, slack_y / 2.0
 
@@ -348,10 +364,11 @@ class UpscaleCropUniversal:
         "Upscale and crop in one node. UPSCALE sets the size -- ask for it as a "
         "percent, a factor, a shortest or longest side, or a megapixel count, "
         "whichever is natural for what you are doing. Those five keep the aspect "
-        "ratio; width_height is the sixth and the exception, giving you an exact "
-        "box by scaling until it is covered and cropping the rest, so it brings "
-        "its own crop along. Every mode works downwards too, so this is also your "
-        "downscaler.\n\n"
+        "ratio. The last two take a width x height box instead: 'width_height' "
+        "covers it and crops to it, so you always get exactly those dimensions, "
+        "while 'custom' covers it and stops -- framing is then yours to set in "
+        "the crop block, the way the JPS nodes keep sizing and cropping apart. "
+        "Every mode works downwards too, so this is also your downscaler.\n\n"
         "CROP is off by default and only ever cuts, never rescales, so nothing is "
         "resampled twice. Switch it on and pick a classic format -- 4:5, 1:1, 3:2, "
         "DIN, 16:9 and the rest -- with crop_orientation deciding which way round "
@@ -408,7 +425,7 @@ class UpscaleCropUniversal:
         return {
             "required": {
                 "target_mode": (TARGET_MODES, {"default": "scale_factor",
-                                               "tooltip": "How you want to ask for the size. The first five keep the aspect ratio; width_height gives you an exact box by scaling to cover it and cropping the rest, so it brings its own crop along. All of them work downwards as well as up."}),
+                                               "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. The last two both take a target_width x target_height box and scale until it is covered: 'width_height' then crops to it for you, so you always get exactly those dimensions; 'custom' stops there and leaves the framing to the crop block, the way the JPS nodes split sizing from cropping. All of them work downwards as well as up."}),
                 "method": (METHODS, {"default": "model",
                                      "tooltip": "How to resample. 'model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
                 "multiple_of": (MULTIPLES, {"default": "8",
@@ -430,9 +447,9 @@ class UpscaleCropUniversal:
                 "megapixels": ("FLOAT", {"default": 2.0, "min": 0.05, "max": 64.0, "step": 0.05,
                                          "tooltip": "Used by target_mode megapixels. Pins the total pixel count; the shape is unchanged."}),
                 "target_width": ("INT", {"default": 1920, "min": 16, "max": 16384, "step": 8,
-                                         "tooltip": "Used by target_mode width_height. You get exactly this width, whatever comes in."}),
+                                         "tooltip": "The box width, for target_mode width_height and custom. width_height gives you exactly this; custom scales until it is covered and leaves the crop to you."}),
                 "target_height": ("INT", {"default": 1080, "min": 16, "max": 16384, "step": 8,
-                                          "tooltip": "Used by target_mode width_height. You get exactly this height, whatever comes in."}),
+                                          "tooltip": "The box height, for target_mode width_height and custom. width_height gives you exactly this; custom scales until it is covered and leaves the crop to you."}),
                 "crop": ("BOOLEAN", {"default": False,
                                      "tooltip": "Off = pure upscaler. On = cut the format out of the result afterwards."}),
                 "crop_ratio": (RATIO_NAMES, {"default": "4:5",
@@ -444,7 +461,10 @@ class UpscaleCropUniversal:
                 "crop_height": ("INT", {"default": 1024, "min": 16, "max": 16384, "step": 8,
                                         "tooltip": "Only used when crop_ratio is 'custom'."}),
                 "crop_position": (CROP_POSITIONS, {"default": "center",
-                                                   "tooltip": "Where the window sits before the offsets nudge it."}),
+                                                   "tooltip": "Where the window sits before the offsets nudge it. 'random' places it anywhere that fits, driven by crop_seed -- for varying the framing across a batch or a dataset."}),
+                "crop_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
+                                      "control_after_generate": True,
+                                      "tooltip": "Only used when crop_position is 'random'. The same seed always gives the same window, so a result you liked can be reproduced; set control_after_generate to randomize for a new one each run."}),
                 "crop_offset_x": ("INT", {"default": 0, "min": -8192, "max": 8192, "step": 8,
                                           "tooltip": "Nudge the window sideways in px. Positive moves right. Clamped so it can never leave the image."}),
                 "crop_offset_y": ("INT", {"default": 0, "min": -8192, "max": 8192, "step": 8,
@@ -465,7 +485,7 @@ class UpscaleCropUniversal:
             crop=False, crop_ratio="4:5", crop_orientation="auto",
             crop_width=1024, crop_height=1024,
             crop_position="center", crop_offset_x=0, crop_offset_y=0,
-            unique_id=None):
+            crop_seed=0, unique_id=None):
 
         # ComfyUI's frontend can send an untouched optional widget as an
         # explicit None instead of omitting it, which otherwise blows up in
@@ -488,6 +508,7 @@ class UpscaleCropUniversal:
         if crop_position is None: crop_position = "center"
         if crop_offset_x is None: crop_offset_x = 0
         if crop_offset_y is None: crop_offset_y = 0
+        if crop_seed is None: crop_seed = 0
 
         if image is None and samples is None:
             raise ValueError(
@@ -500,16 +521,20 @@ class UpscaleCropUniversal:
         mult = 1 if multiple_of == "off" else int(multiple_of)
         notes = []
 
-        # width_height is the one mode that cannot preserve the aspect ratio,
-        # so it brings its own crop: scale to cover the box, then cut the box
-        # out. The user's crop settings are overridden rather than combined --
-        # two crops fighting over one result would be nobody's idea of clear.
+        # Both box modes scale to cover target_width x target_height. Only
+        # width_height then crops to it, overriding the crop settings rather
+        # than combining with them -- two crops fighting over one result would
+        # be nobody's idea of clear. 'custom' scales the same way and leaves
+        # the crop untouched, so framing stays a separate decision.
+        box = None
         exact_box = None
-        if target_mode == "width_height":
-            exact_box = (_snap(target_width, mult), _snap(target_height, mult))
-            crop = True
-            crop_ratio = "custom"
-            crop_width, crop_height = exact_box
+        if target_mode in BOX_MODES:
+            box = (_snap(target_width, mult), _snap(target_height, mult))
+            if target_mode == "width_height":
+                exact_box = box
+                crop = True
+                crop_ratio = "custom"
+                crop_width, crop_height = box
 
         # ---- image path ------------------------------------------------
         out_image = None
@@ -518,12 +543,17 @@ class UpscaleCropUniversal:
             src_h, src_w = int(image.shape[1]), int(image.shape[2])
             k = _scale_for(src_w, src_h, target_mode, scale_percent, scale_factor,
                            shortest_side, longest_side, megapixels,
-                           *(exact_box or (0, 0)))
+                           *(box or (0, 0)))
             if exact_box:
                 # cover the box exactly, no snapping in between -- the crop
                 # right after lands on the already-snapped box anyway
                 tw = max(exact_box[0], int(round(src_w * k)))
                 th = max(exact_box[1], int(round(src_h * k)))
+            elif box:
+                # covered but not cropped, so this size is what leaves the
+                # node and it has to obey multiple_of like every other mode
+                tw, th = _target(src_w, src_h, k, mult)
+                tw, th = max(box[0], tw), max(box[1], th)
             else:
                 tw, th = _target(src_w, src_h, k, mult)
 
@@ -560,12 +590,15 @@ class UpscaleCropUniversal:
             # a latent's own multiple_of is in latent cells, not pixels
             lmult = max(1, mult // 8) if mult > 1 else 1
             # ...and so is a width_height box, which is given in image pixels
-            lbox = (max(1, exact_box[0] // 8), max(1, exact_box[1] // 8)) if exact_box else (0, 0)
+            lbox = (max(1, box[0] // 8), max(1, box[1] // 8)) if box else (0, 0)
             k = _scale_for(lw, lh, target_mode, scale_percent, scale_factor,
                            shortest_side, longest_side, megapixels, *lbox)
             if exact_box:
                 ltw = max(lbox[0], int(round(lw * k)))
                 lth = max(lbox[1], int(round(lh * k)))
+            elif box:
+                ltw, lth = _target(lw, lh, k, lmult)
+                ltw, lth = max(lbox[0], ltw), max(lbox[1], lth)
             else:
                 ltw, lth = _target(lw, lh, k, lmult)
             out_latent = _resize_latent(lat, ltw, lth, method)
@@ -586,7 +619,8 @@ class UpscaleCropUniversal:
                 box_h = max(1, int(crop_height) // 8)
                 off_x, off_y = crop_offset_x / 8.0, crop_offset_y / 8.0
             rect = _crop_rect(ref_w, ref_h, crop_ratio, crop_orientation,
-                              box_w, box_h, crop_position, off_x, off_y)
+                              box_w, box_h, crop_position, off_x, off_y,
+                              crop_seed)
             if out_image is not None:
                 out_image = _apply_rect(out_image, rect, mult, channels_last=True)
                 img_dims = (int(out_image.shape[2]), int(out_image.shape[1]))
@@ -596,6 +630,8 @@ class UpscaleCropUniversal:
             shape = crop_ratio if crop_ratio == "custom" else (
                 crop_ratio + ("" if crop_ratio == "1:1" else " " + crop_orientation))
             crop_note = f"crop {shape} {crop_position}"
+            if crop_position == "random":
+                crop_note += f"({crop_seed})"
             if crop_offset_x or crop_offset_y:
                 crop_note += f" {crop_offset_x:+d}{crop_offset_y:+d}"
 
@@ -617,7 +653,12 @@ class UpscaleCropUniversal:
         if samples is not None:
             parts.append(f"latent {samples['samples'].shape[3]}x{samples['samples'].shape[2]}"
                          f" -> {out_latent.shape[3]}x{out_latent.shape[2]}")
-        parts.append(target_mode)
+        if target_mode in BOX_MODES:
+            parts.append(f"{target_mode} {box[0]}x{box[1]}")
+            if not exact_box:
+                parts.append("covered, crop is yours")
+        else:
+            parts.append(target_mode)
         parts.append(method)
         parts.append(f"/{multiple_of}")
         parts.append(crop_note)
@@ -688,18 +729,24 @@ def _preview(data, cached):
     mult_s = txt("multiple_of", "8", MULTIPLES)
     mult = 1 if mult_s == "off" else int(mult_s)
 
+    box = None
     exact_box = None
-    if mode == "width_height":
-        exact_box = (_snap(num("target_width", 1920), mult),
-                     _snap(num("target_height", 1080), mult))
+    if mode in BOX_MODES:
+        box = (_snap(num("target_width", 1920), mult),
+               _snap(num("target_height", 1080), mult))
+        if mode == "width_height":
+            exact_box = box
 
     k = _scale_for(src_w, src_h, mode, num("scale_percent", 200.0),
                    num("scale_factor", 2.0), num("shortest_side", 1536),
                    num("longest_side", 2048), num("megapixels", 2.0),
-                   *(exact_box or (0, 0)))
+                   *(box or (0, 0)))
     if exact_box:
         up_w = max(exact_box[0], int(round(src_w * k)))
         up_h = max(exact_box[1], int(round(src_h * k)))
+    elif box:
+        up_w, up_h = _target(src_w, src_h, k, mult)
+        up_w, up_h = max(box[0], up_w), max(box[1], up_h)
     else:
         up_w, up_h = _target(src_w, src_h, k, mult)
 
@@ -721,7 +768,8 @@ def _preview(data, cached):
         pos = txt("crop_position", "center", CROP_POSITIONS)
         box = exact_box or (num("crop_width", 1024), num("crop_height", 1024))
         rect = _crop_rect(up_w, up_h, ratio, orient, box[0], box[1],
-                          pos, num("crop_offset_x", 0), num("crop_offset_y", 0))
+                          pos, num("crop_offset_x", 0), num("crop_offset_y", 0),
+                          int(num("crop_seed", 0)))
         cw = min(up_w, _snap((rect[2] - rect[0]) * up_w, mult))
         ch = min(up_h, _snap((rect[3] - rect[1]) * up_h, mult))
         out["rect"] = [round(v, 5) for v in rect]

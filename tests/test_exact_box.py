@@ -160,3 +160,94 @@ def test_auto_beats_a_fixed_orientation_on_a_mixed_batch():
     auto = sum(area(w, h, "auto") for w, h in batch)
     for fixed in ("portrait", "landscape"):
         assert auto > sum(area(w, h, fixed) for w, h in batch), fixed
+
+
+# ---- custom box mode, and the random anchor -------------------------------
+
+def test_custom_covers_the_box_without_cropping_it():
+    """The JPS split: custom sizes, you frame. So the result covers the box
+    but is not cut down to it -- that is what width_height is for."""
+    r = run(mod, image=image(1024, 1536), method="lanczos",
+            target_mode="custom", target_width=1920, target_height=1080,
+            multiple_of="off")
+    w, h = int(r[0].shape[2]), int(r[0].shape[1])
+    assert w >= 1920 and h >= 1080, (w, h)
+    assert (w, h) != (1920, 1080), "custom must not crop by itself"
+    assert abs(w / h - 1024 / 1536) < 0.01, "aspect must survive"
+
+
+def test_custom_and_width_height_scale_the_same():
+    """Same box, same cover arithmetic -- they part ways only at the crop."""
+    a = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
+            target_width=1920, target_height=1080, multiple_of="off")
+    b = run(mod, image=image(1024, 1536), method="lanczos",
+            target_mode="width_height", target_width=1920, target_height=1080,
+            multiple_of="off")
+    aw = int(a[0].shape[2])
+    assert aw == 1920, aw               # covered on the constraining axis
+    assert int(b[0].shape[2]) == 1920 and int(b[0].shape[1]) == 1080
+
+
+def test_custom_lets_you_do_the_crop_yourself():
+    r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
+            target_width=1920, target_height=1080, multiple_of="off",
+            crop=True, crop_ratio="custom", crop_width=1920, crop_height=1080)
+    assert (int(r[0].shape[2]), int(r[0].shape[1])) == (1920, 1080)
+
+
+def test_custom_obeys_multiple_of():
+    for m in ["8", "64"]:
+        r = run(mod, image=image(1024, 1536), method="lanczos",
+                target_mode="custom", target_width=1000, target_height=1000,
+                multiple_of=m)
+        w, h = int(r[0].shape[2]), int(r[0].shape[1])
+        assert w % int(m) == 0 and h % int(m) == 0, (m, w, h)
+
+
+def test_random_is_reproducible_from_its_seed():
+    """A free-running random would make the preview a lie and a result you
+    liked impossible to get back."""
+    def once(seed):
+        r = mod._crop_rect(2000, 2000, "16:9", "landscape", 0, 0,
+                           "random", 0, 0, seed)
+        return tuple(round(v, 6) for v in r)
+    assert once(42) == once(42)
+    assert once(42) != once(43)
+
+
+def test_random_stays_inside_the_image():
+    for seed in range(25):
+        x0, y0, x1, y1 = mod._crop_rect(1900, 1200, "4:5", "portrait",
+                                        0, 0, "random", 0, 0, seed)
+        assert 0 <= x0 < x1 <= 1.0001, (seed, x0, x1)
+        assert 0 <= y0 < y1 <= 1.0001, (seed, y0, y1)
+
+
+def test_random_actually_moves_around():
+    seen = {tuple(round(v, 3) for v in
+                  mod._crop_rect(2000, 2000, "16:9", "landscape",
+                                 0, 0, "random", 0, 0, s)[:2])
+            for s in range(30)}
+    assert len(seen) > 20, f"only {len(seen)} distinct placements in 30 seeds"
+
+
+def test_random_keeps_the_size_it_was_asked_for():
+    base = None
+    for seed in range(10):
+        r = run(mod, image=image(1024, 1536), method="lanczos",
+                target_mode="scale_factor", scale_factor=2.0, crop=True,
+                crop_ratio="16:9", crop_orientation="landscape",
+                crop_position="random", crop_seed=seed)
+        size = (int(r[0].shape[2]), int(r[0].shape[1]))
+        base = base or size
+        assert size == base, (seed, size, base)
+
+
+def test_random_frames_image_and_latent_alike():
+    r = run(mod, image=image(1024, 1536), samples=latent(128, 192),
+            method="lanczos", target_mode="scale_factor", scale_factor=2.0,
+            crop=True, crop_ratio="1:1", crop_position="random", crop_seed=7,
+            multiple_of="off")
+    iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
+    lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
+    assert abs(iw / ih - lw / lh) < 0.05, (iw, ih, lw, lh)

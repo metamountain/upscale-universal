@@ -56,7 +56,8 @@ current size downscales, and that is a supported use, not a mistake.
 | `shortest_side` | `min(w, h)` | a model needs a minimum edge |
 | `longest_side` | `max(w, h)` | fitting a print, a screen, an upload limit |
 | `megapixels` | total pixel count | staying inside a VRAM or filesize budget |
-| `width_height` | **an exact box** | the output size is not negotiable |
+| `width_height` | **an exact box**, cropped for you | the output size is not negotiable |
+| `custom` | the same box, **crop is yours** | you want to frame it yourself |
 
 The first five keep the aspect ratio and cannot distort the image.
 
@@ -86,6 +87,23 @@ upscale happened to produce, and clamps *per axis* when the image was too small 
 which does not even keep the shape you asked for. Ask both for 3000×3000 from a
 1024×1536 source: `width_height` gives you a 3000×3000 square, `custom` gives you
 the whole 1024×1536 frame.
+
+### `custom` — the same box, your crop
+
+Takes the same `target_width` × `target_height` box as `width_height` and covers it
+with exactly the same arithmetic. Then it **stops**.
+
+Nothing is cropped for you: the crop block stays fully available and you frame it
+yourself, or leave the crop off and keep the covered size. This is the JPS split,
+where choosing a size and choosing what survives are two separate decisions made one
+after the other.
+
+| | `width_height` | `custom` |
+|---|---|---|
+| scales to cover the box | yes | yes |
+| crops to the box | **automatically** | **you decide** |
+| crop block visible | folded away | fully available |
+| result | exactly W×H | covers W×H, aspect intact |
 
 ### `method`
 
@@ -193,6 +211,19 @@ offset per axis**.
 | `bottom` | flush to the bottom, centred horizontally |
 | `left` | flush to the left, centred vertically |
 | `right` | flush to the right, centred vertically |
+| `random` | anywhere it fits, from `crop_seed` |
+
+### `crop_seed`
+
+Only visible when `crop_position = random`. The same seed always gives the same
+window, which matters twice over: the live preview shows the crop you will actually
+get, and a framing you liked can be reproduced by re-queueing. Set its
+control-after-generate to *randomize* for a fresh window each run — useful for
+building a varied dataset out of one source.
+
+A free-running random would break both of those, which is why it is seeded.
+
+### The offsets
 
 `crop_offset_x` moves it sideways (positive = right), `crop_offset_y` up and down
 (positive = down). Two offsets rather than one because a single offset could only
@@ -296,7 +327,7 @@ Two things it deliberately does not do:
 python tests/run_tests.py
 ```
 
-52 tests, no pytest needed — the portable ComfyUI python does not ship it. They
+61 tests, no pytest needed — the portable ComfyUI python does not ship it. They
 run against a stubbed `folder_paths` and never touch a real model, so they work
 anywhere torch does.
 

@@ -18,11 +18,14 @@ import { api } from "../../scripts/api.js";
 const NODE = "UpscaleCropUniversal";
 
 const TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
-                      "longest_side", "megapixels", "width_height"];
+                      "longest_side", "megapixels", "width_height", "custom"];
+// Both take the target_width x target_height box; only width_height crops to
+// it for you, so only that one folds the crop block away.
+const BOX_MODES = ["width_height", "custom"];
 const METHODS = ["model", "lanczos", "bicubic", "bilinear", "nearest", "area"];
 const RATIOS = ["custom", "4:5", "1:1", "4:3", "3:2", "DIN", "16:10", "16:9", "2:1", "21:9"];
 const ORIENTATIONS = ["auto", "portrait", "landscape"];
-const CROP_POSITIONS = ["center", "top", "bottom", "left", "right"];
+const CROP_POSITIONS = ["center", "top", "bottom", "left", "right", "random"];
 const MULTIPLES = ["off", "2", "4", "8", "16", "32", "64"];
 
 // Which size widget belongs to which target_mode.
@@ -54,6 +57,7 @@ const OPTIONAL_DEFAULTS = {
     crop_height: 1024,
     crop_offset_x: 0,
     crop_offset_y: 0,
+    crop_seed: 0,
 };
 
 const COMBO_VALUES = {
@@ -73,7 +77,7 @@ const PREVIEW_WIDGETS = [
     "scale_percent", "scale_factor", "shortest_side", "longest_side", "megapixels",
     "target_width", "target_height",
     "crop", "crop_ratio", "crop_orientation", "crop_width", "crop_height",
-    "crop_position", "crop_offset_x", "crop_offset_y",
+    "crop_position", "crop_offset_x", "crop_offset_y", "crop_seed",
 ];
 const PREVIEW_DEBOUNCE_MS = 120;
 const PREVIEW_MAX_H = 150;
@@ -136,8 +140,10 @@ function updateVisibility(node) {
     const method = widget(node, "method")?.value;
     const cropOn = widget(node, "crop")?.value === true;
     const ratio = widget(node, "crop_ratio")?.value;
+    const position = widget(node, "crop_position")?.value;
 
-    const box = mode === "width_height";
+    const box = BOX_MODES.includes(mode);
+    const autoCrops = mode === "width_height";
 
     // one size field, whichever the mode asks for -- except width_height,
     // which needs two
@@ -152,18 +158,20 @@ function updateVisibility(node) {
     // width_height already crops to its box, so the crop block would only
     // be a second crop arguing with the first -- it folds away entirely and
     // just the framing controls stay, since those still decide what survives
-    const framing = box || cropOn;
-    setVisible(node, "crop", !box);
-    setVisible(node, "crop_ratio", cropOn && !box);
+    const framing = autoCrops || cropOn;
+    setVisible(node, "crop", !autoCrops);
+    setVisible(node, "crop_ratio", cropOn && !autoCrops);
     setVisible(node, "crop_position", framing);
     setVisible(node, "crop_offset_x", framing);
     setVisible(node, "crop_offset_y", framing);
+    // the seed only means anything to the random placement
+    setVisible(node, "crop_seed", framing && position === "random");
     // custom takes pixels; a named format takes an orientation instead,
     // and a square has no orientation to take
-    setVisible(node, "crop_width", cropOn && !box && ratio === "custom");
-    setVisible(node, "crop_height", cropOn && !box && ratio === "custom");
+    setVisible(node, "crop_width", cropOn && !autoCrops && ratio === "custom");
+    setVisible(node, "crop_height", cropOn && !autoCrops && ratio === "custom");
     setVisible(node, "crop_orientation",
-               cropOn && !box && ratio !== "custom" && ratio !== "1:1");
+               cropOn && !autoCrops && ratio !== "custom" && ratio !== "1:1");
 
     const size = node.computeSize();
     node.setSize([Math.max(node.size[0], size[0]), size[1]]);
@@ -193,7 +201,7 @@ app.registerExtension({
             // Re-evaluate whenever one of the widgets that steers the others
             // changes. crop_ratio is in here because 'custom' swaps the
             // pixel fields in for the orientation combo.
-            for (const name of ["target_mode", "method", "crop", "crop_ratio"]) {
+            for (const name of ["target_mode", "method", "crop", "crop_ratio", "crop_position"]) {
                 const w = widget(this, name);
                 if (!w) continue;
                 const orig = w.callback;
