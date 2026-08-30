@@ -1,0 +1,14 @@
+[project]
+name = "upscale-crop-universal"
+description = "Upscale and crop in one ComfyUI node. Five ways to ask for a size, all aspect-preserving and all working downwards too, plus a crop stage with the classic formats. The upscale model is picked by a widget -- no loader node to wire up."
+version = "0.1.0"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/metamountain/upscale-universal"
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "Upscale Crop Universal"
