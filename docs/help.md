@@ -132,14 +132,17 @@ rather than failing.
 ### `multiple_of`
 
 Snaps the final width and height to a multiple, so the result survives whatever
-comes next.
+comes next. A plain number field — type whatever step you need.
 
 | value | when |
 |---|---|
 | `8` | **default.** SD, SDXL and Flux all encode in 8-pixel blocks |
 | `16`, `32`, `64` | tiling workflows and some video models |
-| `2`, `4` | rarely needed |
-| `off` | you get the exact number you asked for — fine when the image goes straight to disk |
+| anything else | whatever your downstream node wants |
+| **under 1** | snapping off — you get the exact number you asked for, fine when the image goes straight to disk |
+
+A value below 1 cannot mean anything else: every whole number of pixels is already a
+multiple of 0.5, so there would be nothing left to round.
 
 Without this, a size like `2046×3070` reaches the VAE, which quietly crops it or
 errors — and the cause is not obvious from the message you get. The `info` output

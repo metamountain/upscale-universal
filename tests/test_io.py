@@ -33,7 +33,7 @@ def test_latent_is_sized_from_its_own_dimensions():
     target, it must compute its own from the same spec."""
     r = run(mod, image=image(1024, 1536), samples=latent(100, 150),
             method="lanczos", target_mode="scale_factor", scale_factor=2.0,
-            multiple_of="off")
+            multiple_of=1)
     assert tuple(r[0].shape)[1:3] == (3072, 2048), r[0].shape
     assert tuple(r[1]["samples"].shape)[2:] == (300, 200), r[1]["samples"].shape
 

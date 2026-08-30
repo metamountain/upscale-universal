@@ -26,7 +26,6 @@ const METHODS = ["model", "lanczos", "bicubic", "bilinear", "nearest", "area"];
 const RATIOS = ["custom", "4:5", "1:1", "4:3", "3:2", "DIN", "16:10", "16:9", "2:1", "21:9"];
 const ORIENTATIONS = ["auto", "portrait", "landscape"];
 const CROP_POSITIONS = ["center", "top", "bottom", "left", "right", "random"];
-const MULTIPLES = ["off", "2", "4", "8", "16", "32", "64"];
 
 // The modes whose widget is simply named after them.
 const SIZE_WIDGETS = ["scale_percent", "scale_factor", "shortest_side",
@@ -39,7 +38,15 @@ const BOX_WIDGETS = ["target_width", "target_height"];
 // optional widget at null until it is touched, and a null fails server-side
 // validation before run() is ever called, so this is fixed on the widget
 // itself rather than in Python.
+// multiple_of used to be a combo of fixed strings; a workflow saved then
+// restores "8" or "off" into what is now a number field, so it is repaired
+// alongside the optional widgets even though it is a required one.
+// multiple_of used to be a combo of fixed strings; a workflow saved back then
+// restores "8" or "off" into what is now a number field, so it is repaired
+// alongside the optional widgets even though it is a required one.
 const OPTIONAL_DEFAULTS = {
+    multiple_of: 8,
+    multiple_of: 8,
     scale_percent: 200.0,
     scale_factor: 2.0,
     shortest_side: 1536,
@@ -56,7 +63,6 @@ const OPTIONAL_DEFAULTS = {
 const COMBO_VALUES = {
     target_mode: TARGET_MODES,
     method: METHODS,
-    multiple_of: MULTIPLES,
     crop_ratio: RATIOS,
     crop_orientation: ORIENTATIONS,
     crop_position: CROP_POSITIONS,
@@ -95,6 +101,16 @@ function repairOptionals(node) {
     for (const [name, fallback] of Object.entries(OPTIONAL_DEFAULTS)) {
         const w = widget(node, name);
         if (!w) continue;
+        if (typeof w.value === "string") {
+            const n = w.value.trim().toLowerCase();
+            w.value = (n === "off" || n === "" || Number.isNaN(Number(n)))
+                ? fallback : Number(n);
+        }
+        if (typeof w.value === "string") {
+            const t = w.value.trim().toLowerCase();
+            const n = Number(t);
+            w.value = (t === "off" || t === "" || Number.isNaN(n)) ? fallback : n;
+        }
         if (w.value === null || w.value === undefined ||
             (typeof w.value === "number" && Number.isNaN(w.value))) {
             w.value = fallback;
@@ -299,7 +315,7 @@ function buildPreview(node) {
             d.method,
             "×" + d.factor,
         ];
-        if (d.multiple_of !== "off") bits.push("/" + d.multiple_of);
+        if (d.multiple_of >= 1) bits.push("/" + Math.round(d.multiple_of));
         if (d.crop) {
             let shape = d.ratio === "custom" || d.ratio === "1:1"
                 ? d.ratio : d.ratio + " " + d.orientation;

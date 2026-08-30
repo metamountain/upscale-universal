@@ -63,7 +63,27 @@ TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
 # framing are separate decisions you make one after the other.
 BOX_MODES = ("width_height", "custom")
 
-MULTIPLES = ["off", "2", "4", "8", "16", "32", "64"]
+def _as_mult(v):
+    """multiple_of as a plain float, however it arrives.
+
+    It used to be a combo of fixed strings, so a workflow saved back then
+    restores "8" or "off" into what is now a number field. Both still mean
+    what they always did rather than blowing up on the conversion.
+    """
+    if isinstance(v, str):
+        v = v.strip().lower()
+        if v in ("off", "none", ""):
+            return 1.0
+        try:
+            v = float(v)
+        except ValueError:
+            return 1.0
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return 1.0
+    return 1.0 if v <= 0 else v
+
 
 # Interpolation vocabulary follows ComfyUI core and the JPS crop nodes, so a
 # name means the same thing here as it does everywhere else in a graph.
@@ -119,11 +139,16 @@ def _rank_models(names):
 
 
 def _snap(n, mult):
-    """Round to the nearest multiple, never below one multiple."""
+    """Round to the nearest multiple, never below one multiple.
+
+    Anything under 1 means no snapping at all -- there is no such thing as
+    rounding a pixel count to a multiple of a half.
+    """
     n = max(1.0, float(n))
-    if mult <= 1:
+    if mult < 1.0:
         return max(1, int(round(n)))
-    return max(mult, int(round(n / mult)) * mult)
+    m = max(1, int(round(mult)))
+    return max(m, int(round(n / m)) * m)
 
 
 def _scale_for(w, h, mode, percent, factor, shortest, longest, megapixels,
@@ -436,8 +461,8 @@ class UpscaleCropUniversal:
                                                "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. The last two both take a target_width x target_height box and scale until it is covered: 'width_height' then crops to it for you, so you always get exactly those dimensions; 'custom' stops there and leaves the framing to the crop block, the way the JPS nodes split sizing from cropping. All of them work downwards as well as up."}),
                 "method": (METHODS, {"default": "model",
                                      "tooltip": "How to resample. 'model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
-                "multiple_of": (MULTIPLES, {"default": "8",
-                                            "tooltip": "Snap the result to this multiple so it survives a VAE. 8 suits SD, SDXL and Flux. 'off' gives you the exact number you asked for -- fine when the image goes straight to disk."}),
+                "multiple_of": ("INT", {"default": 8, "min": 1, "max": 512, "step": 1,
+                                        "tooltip": "Snap the result to a multiple of this, so it survives a VAE. 8 suits SD, SDXL and Flux; 64 for some tiling and video workflows; any number you like. 1 switches it off and gives you the exact size you asked for -- fine when the image goes straight to disk."}),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
             "optional": {
@@ -485,7 +510,7 @@ class UpscaleCropUniversal:
     FUNCTION = "run"
     CATEGORY = "image/upscaling"      # next to ComfyUI's own upscale nodes
 
-    def run(self, target_mode="scale_factor", method="model", multiple_of="8",
+    def run(self, target_mode="scale_factor", method="model", multiple_of=8,
             image=None, samples=None, upscale_model=None,
             scale_percent=200.0, scale_factor=2.0, shortest_side=1536,
             longest_side=2048, megapixels=2.0,
@@ -499,7 +524,7 @@ class UpscaleCropUniversal:
         # the float()/int() conversion before this ever runs.
         if target_mode is None: target_mode = "scale_factor"
         if method is None: method = "model"
-        if multiple_of is None: multiple_of = "8"
+        if multiple_of is None: multiple_of = 8
         if scale_percent is None: scale_percent = 200.0
         if scale_factor is None: scale_factor = 2.0
         if shortest_side is None: shortest_side = 1536
@@ -523,7 +548,7 @@ class UpscaleCropUniversal:
         if unique_id is not None and image is not None:
             _remember(unique_id, image)
 
-        mult = 1 if multiple_of == "off" else int(multiple_of)
+        mult = _as_mult(multiple_of)
         notes = []
 
         # Both box modes scale to cover target_width x target_height. Only
@@ -592,7 +617,7 @@ class UpscaleCropUniversal:
             lat = samples["samples"]
             lh, lw = int(lat.shape[2]), int(lat.shape[3])
             # a latent's own multiple_of is in latent cells, not pixels
-            lmult = max(1, mult // 8) if mult > 1 else 1
+            lmult = max(1, int(mult) // 8) if mult >= 8 else 1
             # ...and so is a width_height box, which is given in image pixels
             lbox = (max(1, box[0] // 8), max(1, box[1] // 8)) if box else (0, 0)
             k = _scale_for(lw, lh, target_mode, scale_percent, scale_factor,
@@ -632,8 +657,8 @@ class UpscaleCropUniversal:
                 out_image = _apply_rect(out_image, rect, mult, channels_last=True)
                 img_dims = (int(out_image.shape[2]), int(out_image.shape[1]))
             if out_latent is not None:
-                lmult = max(1, mult // 8) if mult > 1 else 1
-                out_latent = _apply_rect(out_latent, rect, lmult, channels_last=False)
+                lm = max(1, int(mult) // 8) if mult >= 8 else 1
+                out_latent = _apply_rect(out_latent, rect, lm, channels_last=False)
             shape = crop_ratio if crop_ratio == "custom" else (
                 crop_ratio + ("" if crop_ratio == "1:1" else " " + crop_orientation))
             crop_note = f"crop {shape} {crop_position}"
@@ -667,7 +692,7 @@ class UpscaleCropUniversal:
         else:
             parts.append(target_mode)
         parts.append(method)
-        parts.append(f"/{multiple_of}")
+        parts.append("no snap" if mult < 1 else f"/{int(round(mult))}")
         parts.append(crop_note)
         parts.extend(notes)
 
@@ -733,8 +758,7 @@ def _preview(data, cached):
 
     mode = txt("target_mode", "scale_factor", TARGET_MODES)
     method = txt("method", "model", METHODS)
-    mult_s = txt("multiple_of", "8", MULTIPLES)
-    mult = 1 if mult_s == "off" else int(mult_s)
+    mult = _as_mult(data.get("multiple_of", 8))
 
     box = None
     exact_box = None
@@ -764,7 +788,7 @@ def _preview(data, cached):
         "up": [up_w, up_h],
         "factor": round(k, 3),
         "method": method,
-        "multiple_of": mult_s,
+        "multiple_of": mult,
         "rect": None,
         "crop": None,
     }

@@ -41,7 +41,7 @@ def test_preview_size_matches_what_the_node_produces():
         {"target_mode": "longest_side", "longest_side": 2048},
         {"target_mode": "megapixels", "megapixels": 1.3},
     ]:
-        for mult in ["off", "8", "64"]:
+        for mult in [1, 8, 64]:
             d = dict(data, method="lanczos", multiple_of=mult)
             p = mod._preview(d, c)
             r = run(mod, image=image(SRC_W, SRC_H), **d)
@@ -53,7 +53,7 @@ def test_preview_crop_size_matches_what_the_node_produces():
     for ratio in ["4:5", "1:1", "16:9", "DIN", "custom"]:
         for pos in ["center", "top", "left"]:
             d = {"target_mode": "scale_factor", "scale_factor": 2.0,
-                 "method": "lanczos", "multiple_of": "8", "crop": True,
+                 "method": "lanczos", "multiple_of": 8, "crop": True,
                  "crop_ratio": ratio, "crop_orientation": "portrait",
                  "target_width": 1200, "target_height": 900,
                  "crop_position": pos, "crop_offset_x": 0, "crop_offset_y": 0}
@@ -68,7 +68,7 @@ def test_preview_rect_is_normalised_and_inside_the_frame():
     for pos in ["center", "top", "bottom", "left", "right"]:
         for off in [-4000, 0, 4000]:
             d = {"target_mode": "scale_factor", "scale_factor": 2.0,
-                 "method": "lanczos", "multiple_of": "8", "crop": True,
+                 "method": "lanczos", "multiple_of": 8, "crop": True,
                  "crop_ratio": "16:9", "crop_orientation": "landscape",
                  "crop_position": pos, "crop_offset_y": off}
             x0, y0, x1, y1 = mod._preview(d, c)["rect"]

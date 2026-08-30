@@ -29,13 +29,13 @@ def test_shortest_side_pins_the_short_edge():
 
 
 def test_longest_side_pins_the_long_edge():
-    w, h, _ = _out(target_mode="longest_side", longest_side=2048, multiple_of="off")
+    w, h, _ = _out(target_mode="longest_side", longest_side=2048, multiple_of=1)
     assert max(w, h) == 2048, (w, h)
     assert (w, h) == (1365, 2048), (w, h)
 
 
 def test_megapixels_hits_the_pixel_count():
-    w, h, _ = _out(target_mode="megapixels", megapixels=2.0, multiple_of="off")
+    w, h, _ = _out(target_mode="megapixels", megapixels=2.0, multiple_of=1)
     mp = w * h / 1e6
     assert 1.94 < mp < 2.06, mp
 
@@ -47,7 +47,7 @@ def test_aspect_is_preserved_by_every_mode():
                dict(target_mode="shortest_side", shortest_side=999),
                dict(target_mode="longest_side", longest_side=999),
                dict(target_mode="megapixels", megapixels=1.3)]:
-        w, h, _ = _out(multiple_of="off", **kw)
+        w, h, _ = _out(multiple_of=1, **kw)
         assert abs(w / h - src) < 0.01, (kw, w, h)
 
 
@@ -62,7 +62,7 @@ def test_every_mode_downscales_too():
 
 
 def test_multiple_of_is_always_satisfied():
-    for m in ["2", "4", "8", "16", "32", "64"]:
+    for m in [2, 4, 8, 16, 32, 64]:
         for mode, kw in [("scale_factor", dict(scale_factor=1.37)),
                          ("shortest_side", dict(shortest_side=999)),
                          ("megapixels", dict(megapixels=1.3))]:
@@ -71,5 +71,5 @@ def test_multiple_of_is_always_satisfied():
 
 
 def test_multiple_of_off_gives_the_exact_number():
-    w, h, _ = _out(target_mode="shortest_side", shortest_side=999, multiple_of="off")
+    w, h, _ = _out(target_mode="shortest_side", shortest_side=999, multiple_of=1)
     assert min(w, h) == 999, (w, h)

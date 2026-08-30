@@ -48,21 +48,21 @@ def test_every_format_fits_inside_and_keeps_its_shape():
         wide, tall = max(raw, 1 / raw), min(raw, 1 / raw)
         for orient, ar in (("landscape", wide), ("portrait", tall)):
             w, h, _ = _crop(crop_ratio=name, crop_orientation=orient,
-                            multiple_of="off")
+                            multiple_of=1)
             assert w <= 2048 and h <= 3072, (name, orient, w, h)
             assert abs(w / h - ar) < 0.02, (name, orient, w / h, ar)
 
 
 def test_custom_uses_the_given_pixels():
     w, h, _ = _crop(crop_ratio="custom", target_width=1200, target_height=900,
-                    multiple_of="off")
+                    multiple_of=1)
     assert (w, h) == (1200, 900), (w, h)
 
 
 def test_custom_pixels_still_obey_multiple_of():
     """900 is not a multiple of 8, so it must come back snapped, not exact."""
     w, h, _ = _crop(crop_ratio="custom", target_width=1200, target_height=900,
-                    multiple_of="8")
+                    multiple_of=8)
     assert (w, h) == (1200, 896), (w, h)
 
 
@@ -92,8 +92,8 @@ def test_all_anchors_run_and_keep_the_size():
 
 
 def test_crop_output_respects_multiple_of():
-    for m in ["8", "16", "64"]:
-        w, h, _ = _crop(crop_ratio="DIN", crop_orientation="portrait", multiple_of=m)
+    for m in [8, 16, 64]:
+        w, h, _ = _crop(crop_ratio="DIN", crop_orientation="portrait", multiple_of=int(m))
         assert w % int(m) == 0 and h % int(m) == 0, (m, w, h)
 
 
@@ -102,7 +102,7 @@ def test_image_and_latent_are_framed_the_same():
     r = run(mod, image=image(SRC_W, SRC_H), samples=latent(128, 192),
             method="lanczos", target_mode="scale_factor", scale_factor=2.0,
             crop=True, crop_ratio="16:9", crop_orientation="landscape",
-            multiple_of="off")
+            multiple_of=1)
     iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert abs(iw / ih - lw / lh) < 0.05, (iw, ih, lw, lh)

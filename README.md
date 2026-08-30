@@ -106,9 +106,10 @@ the upscale happened to produce and clamps per axis when that was too small — 
 for a 3000×3000 square from a portrait source and only `width_height` gives you a
 square.
 
-`multiple_of` snaps the result so it survives a VAE. **8** suits SD, SDXL and Flux;
-`off` gives you the exact number you asked for, which is fine when the image is
-going straight to disk.
+`multiple_of` snaps the result so it survives a VAE. Type any number — **8** suits
+SD, SDXL and Flux, **64** some tiling and video workflows. **Under 1 switches snapping
+off** and gives you the exact size you asked for, which is fine when the image is going
+straight to disk.
 
 ## The crop stage
 

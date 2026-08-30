@@ -49,17 +49,17 @@ def test_the_box_obeys_multiple_of():
     """900 sits exactly halfway between 896 and 904, and Python rounds a tie
     to even -- 112.5 -> 112 -> 896. Worth pinning so a future refactor to
     round-half-up is noticed rather than silently shifting everyone's crops."""
-    w, h, _ = _box(1000, 900, multiple_of="8")
+    w, h, _ = _box(1000, 900, multiple_of=8)
     assert w % 8 == 0 and h % 8 == 0, (w, h)
     assert (w, h) == (1000, 896), (w, h)
 
     # away from a tie there is nothing to argue about
-    assert _box(1000, 902, multiple_of="8")[:2] == (1000, 904)
-    assert _box(1000, 899, multiple_of="8")[:2] == (1000, 896)
+    assert _box(1000, 902, multiple_of=8)[:2] == (1000, 904)
+    assert _box(1000, 899, multiple_of=8)[:2] == (1000, 896)
 
 
 def test_multiple_of_off_gives_the_literal_box():
-    assert _box(1001, 903, multiple_of="off")[:2] == (1001, 903)
+    assert _box(1001, 903, multiple_of=1)[:2] == (1001, 903)
 
 
 def test_position_and_offsets_still_frame_it():
@@ -90,7 +90,7 @@ def test_it_is_not_the_same_as_custom_crop():
     r = run(mod, image=image(1024, 1536), method="lanczos",
             target_mode="scale_factor", scale_factor=1.0, crop=True,
             crop_ratio="custom", target_width=3000, target_height=3000,
-            multiple_of="off")
+            multiple_of=1)
     got = (int(r[0].shape[2]), int(r[0].shape[1]))
     assert got == (1024, 1024), got           # the biggest square that fits
 
@@ -100,7 +100,7 @@ def test_latent_lands_on_the_box_in_latent_cells():
     -- otherwise it would overshoot eightfold."""
     r = run(mod, samples=latent(128, 192), method="bicubic",
             target_mode="width_height", target_width=1920, target_height=1080,
-            multiple_of="off")
+            multiple_of=1)
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert (lw, lh) == (240, 135), (lw, lh)
 
@@ -108,7 +108,7 @@ def test_latent_lands_on_the_box_in_latent_cells():
 def test_image_and_latent_agree_on_the_box():
     r = run(mod, image=image(1024, 1536), samples=latent(128, 192),
             method="lanczos", target_mode="width_height",
-            target_width=1920, target_height=1080, multiple_of="off")
+            target_width=1920, target_height=1080, multiple_of=1)
     iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert (iw, ih) == (1920, 1080), (iw, ih)
@@ -168,7 +168,7 @@ def test_custom_covers_the_box_without_cropping_it():
     but is not cut down to it -- that is what width_height is for."""
     r = run(mod, image=image(1024, 1536), method="lanczos",
             target_mode="custom", target_width=1920, target_height=1080,
-            multiple_of="off")
+            multiple_of=1)
     w, h = int(r[0].shape[2]), int(r[0].shape[1])
     assert w >= 1920 and h >= 1080, (w, h)
     assert (w, h) != (1920, 1080), "custom must not crop by itself"
@@ -178,10 +178,10 @@ def test_custom_covers_the_box_without_cropping_it():
 def test_custom_and_width_height_scale_the_same():
     """Same box, same cover arithmetic -- they part ways only at the crop."""
     a = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of="off")
+            target_width=1920, target_height=1080, multiple_of=1)
     b = run(mod, image=image(1024, 1536), method="lanczos",
             target_mode="width_height", target_width=1920, target_height=1080,
-            multiple_of="off")
+            multiple_of=1)
     aw = int(a[0].shape[2])
     assert aw == 1920, aw               # covered on the constraining axis
     assert int(b[0].shape[2]) == 1920 and int(b[0].shape[1]) == 1080
@@ -192,7 +192,7 @@ def test_custom_lets_you_do_the_crop_yourself():
     same box out -- so switching the crop on gets you to exactly the size
     width_height would have given, but by your own decision."""
     r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of="off",
+            target_width=1920, target_height=1080, multiple_of=1,
             crop=True, crop_ratio="custom")
     assert (int(r[0].shape[2]), int(r[0].shape[1])) == (1920, 1080)
 
@@ -200,7 +200,7 @@ def test_custom_lets_you_do_the_crop_yourself():
 def test_custom_with_a_named_format_crops_to_that_instead():
     """The box sized it; a named ratio then frames it however you like."""
     r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of="off",
+            target_width=1920, target_height=1080, multiple_of=1,
             crop=True, crop_ratio="1:1")
     w, h = int(r[0].shape[2]), int(r[0].shape[1])
     assert w == h, (w, h)
@@ -210,7 +210,7 @@ def test_custom_obeys_multiple_of():
     for m in ["8", "64"]:
         r = run(mod, image=image(1024, 1536), method="lanczos",
                 target_mode="custom", target_width=1000, target_height=1000,
-                multiple_of=m)
+                multiple_of=int(m))
         w, h = int(r[0].shape[2]), int(r[0].shape[1])
         assert w % int(m) == 0 and h % int(m) == 0, (m, w, h)
 
@@ -258,7 +258,7 @@ def test_random_frames_image_and_latent_alike():
     r = run(mod, image=image(1024, 1536), samples=latent(128, 192),
             method="lanczos", target_mode="scale_factor", scale_factor=2.0,
             crop=True, crop_ratio="1:1", crop_position="random", crop_seed=7,
-            multiple_of="off")
+            multiple_of=1)
     iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert abs(iw / ih - lw / lh) < 0.05, (iw, ih, lw, lh)
@@ -274,7 +274,7 @@ def test_a_custom_box_too_big_keeps_its_shape():
         r = run(mod, image=image(1024, 1536), method="lanczos",
                 target_mode="scale_factor", scale_factor=2.0, crop=True,
                 crop_ratio="custom", target_width=cw, target_height=ch,
-                multiple_of="off")
+                multiple_of=1)
         w, h = int(r[0].shape[2]), int(r[0].shape[1])
         assert w <= 2048 and h <= 3072, (cw, ch, w, h)
         assert abs(w / h - want_ar) < 0.02, (cw, ch, w / h, want_ar)
@@ -285,7 +285,7 @@ def test_a_custom_box_that_fits_is_left_alone():
     r = run(mod, image=image(1024, 1536), method="lanczos",
             target_mode="scale_factor", scale_factor=2.0, crop=True,
             crop_ratio="custom", target_width=800, target_height=600,
-            multiple_of="off")
+            multiple_of=1)
     assert (int(r[0].shape[2]), int(r[0].shape[1])) == (800, 600)
 
 
@@ -297,7 +297,7 @@ def test_every_crop_takes_the_largest_window_that_fits():
                dict(crop_ratio="custom", target_width=6000, target_height=3000)]:
         r = run(mod, image=image(1024, 1536), method="lanczos",
                 target_mode="scale_factor", scale_factor=2.0, crop=True,
-                crop_orientation="landscape", multiple_of="off", **kw)
+                crop_orientation="landscape", multiple_of=1, **kw)
         w, h = int(r[0].shape[2]), int(r[0].shape[1])
         # touching at least one edge is what "largest that fits" means
         assert w == 2048 or h == 3072, (kw, w, h)
