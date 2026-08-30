@@ -1,0 +1,162 @@
+"""target_mode = width_height, and the two crop controls it changed.
+
+This is the mode that cannot preserve the aspect ratio, so it scales to cover
+the box and cuts the box out -- the crop comes along whether you asked for it
+or not. It is NOT the same as crop_ratio = custom, which cuts a window out of
+whatever the upscale happened to produce and clamps if that was too small.
+"""
+
+from helpers import load_node, image, latent, run
+
+mod = load_node()
+XFAIL = set()
+
+
+def _box(w, h, src=(1024, 1536), **kw):
+    kw.setdefault("method", "lanczos")
+    r = run(mod, image=image(*src), target_mode="width_height",
+            target_width=w, target_height=h, **kw)
+    return int(r[0].shape[2]), int(r[0].shape[1]), r[4]
+
+
+def test_you_get_exactly_the_box():
+    for w, h in [(1920, 1080), (1080, 1920), (1000, 1000), (2048, 512)]:
+        got = _box(w, h)[:2]
+        assert got == (w, h), ((w, h), got)
+
+
+def test_the_box_is_hit_from_any_source_shape():
+    for src in [(1024, 1536), (1536, 1024), (512, 512), (3000, 400)]:
+        got = _box(1920, 1080, src=src)[:2]
+        assert got == (1920, 1080), (src, got)
+
+
+def test_it_covers_rather_than_fits():
+    """Covering means no bars. A fit would have left one axis short, and this
+    node never pads, so every pixel of the box must come from the image."""
+    w, h, _ = _box(1920, 1080, src=(1024, 1536))
+    assert (w, h) == (1920, 1080)
+    # 1024x1536 is portrait; covering a landscape box scales by width
+    # (1920/1024 = 1.875) giving 1920x2880, then crops the height down.
+
+
+def test_it_downscales_when_the_box_is_smaller():
+    got = _box(256, 256, src=(2048, 2048))[:2]
+    assert got == (256, 256), got
+
+
+def test_the_box_obeys_multiple_of():
+    """900 sits exactly halfway between 896 and 904, and Python rounds a tie
+    to even -- 112.5 -> 112 -> 896. Worth pinning so a future refactor to
+    round-half-up is noticed rather than silently shifting everyone's crops."""
+    w, h, _ = _box(1000, 900, multiple_of="8")
+    assert w % 8 == 0 and h % 8 == 0, (w, h)
+    assert (w, h) == (1000, 896), (w, h)
+
+    # away from a tie there is nothing to argue about
+    assert _box(1000, 902, multiple_of="8")[:2] == (1000, 904)
+    assert _box(1000, 899, multiple_of="8")[:2] == (1000, 896)
+
+
+def test_multiple_of_off_gives_the_literal_box():
+    assert _box(1001, 903, multiple_of="off")[:2] == (1001, 903)
+
+
+def test_position_and_offsets_still_frame_it():
+    """The box fixes the size; these still decide which part survives."""
+    for pos in ["center", "top", "bottom", "left", "right"]:
+        for ox, oy in [(0, 0), (200, 0), (0, 200), (-9999, 9999)]:
+            got = _box(1920, 1080, crop_position=pos,
+                       crop_offset_x=ox, crop_offset_y=oy)[:2]
+            assert got == (1920, 1080), (pos, ox, oy, got)
+
+
+def test_it_overrides_the_manual_crop_rather_than_stacking():
+    """Two crops fighting over one result would be nobody's idea of clear."""
+    got = _box(1920, 1080, crop=True, crop_ratio="1:1")[:2]
+    assert got == (1920, 1080), got
+
+
+def test_it_is_not_the_same_as_custom_crop():
+    """The distinction worth being clear about.
+
+    width_height scales to cover the box first, so it always lands on it
+    exactly. custom only cuts from whatever the upscale happened to produce,
+    and when that is too small it clamps PER AXIS -- which does not even keep
+    the shape you asked for. Ask both for a 3000x3000 square from a portrait
+    source and only one of them gives you a square.
+    """
+    assert _box(3000, 3000, src=(1024, 1536))[:2] == (3000, 3000)
+
+    r = run(mod, image=image(1024, 1536), method="lanczos",
+            target_mode="scale_factor", scale_factor=1.0, crop=True,
+            crop_ratio="custom", crop_width=3000, crop_height=3000,
+            multiple_of="off")
+    clamped = (int(r[0].shape[2]), int(r[0].shape[1]))
+    assert clamped == (1024, 1536), clamped   # the whole frame, not a square
+
+
+def test_latent_lands_on_the_box_in_latent_cells():
+    """The box is given in image pixels, so the latent has to divide it by 8
+    -- otherwise it would overshoot eightfold."""
+    r = run(mod, samples=latent(128, 192), method="bicubic",
+            target_mode="width_height", target_width=1920, target_height=1080,
+            multiple_of="off")
+    lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
+    assert (lw, lh) == (240, 135), (lw, lh)
+
+
+def test_image_and_latent_agree_on_the_box():
+    r = run(mod, image=image(1024, 1536), samples=latent(128, 192),
+            method="lanczos", target_mode="width_height",
+            target_width=1920, target_height=1080, multiple_of="off")
+    iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
+    lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
+    assert (iw, ih) == (1920, 1080), (iw, ih)
+    assert abs(iw / ih - lw / lh) < 0.05, (iw, ih, lw, lh)
+
+
+# ---- the two crop controls that changed -----------------------------------
+
+def test_offsets_move_on_their_own_axis():
+    """One offset could only ever move along whichever axis the anchor left
+    free -- with center that meant no horizontal nudge at all."""
+    c = mod._crop_rect(2000, 1000, "1:1", "auto", 0, 0, "center", 0, 0)
+    x = mod._crop_rect(2000, 1000, "1:1", "auto", 0, 0, "center", 300, 0)
+    y = mod._crop_rect(2000, 1000, "1:1", "auto", 0, 0, "center", 0, 300)
+    assert x[0] > c[0] and x[1] == c[1], (c, x)
+    assert y[1] == c[1], "a 1:1 window in a 2:1 frame has no vertical slack"
+
+    c2 = mod._crop_rect(1000, 2000, "1:1", "auto", 0, 0, "center", 0, 0)
+    y2 = mod._crop_rect(1000, 2000, "1:1", "auto", 0, 0, "center", 0, 300)
+    assert y2[1] > c2[1] and y2[0] == c2[0], (c2, y2)
+
+
+def test_offsets_are_clamped_independently():
+    for ox, oy in [(-99999, 0), (99999, 0), (0, -99999), (0, 99999)]:
+        x0, y0, x1, y1 = mod._crop_rect(2000, 2000, "16:9", "landscape",
+                                        0, 0, "center", ox, oy)
+        assert 0 <= x0 < x1 <= 1.0001, (ox, oy, x0, x1)
+        assert 0 <= y0 < y1 <= 1.0001, (ox, oy, y0, y1)
+
+
+def test_auto_orientation_follows_the_source():
+    """A fixed orientation cuts a thin strip out of half a mixed batch."""
+    tall = mod._crop_rect(1000, 1500, "4:5", "auto", 0, 0, "center", 0, 0)
+    wide = mod._crop_rect(1500, 1000, "4:5", "auto", 0, 0, "center", 0, 0)
+    tall_ar = ((tall[2] - tall[0]) * 1000) / ((tall[3] - tall[1]) * 1500)
+    wide_ar = ((wide[2] - wide[0]) * 1500) / ((wide[3] - wide[1]) * 1000)
+    assert tall_ar < 1 < wide_ar, (tall_ar, wide_ar)
+
+
+def test_auto_beats_a_fixed_orientation_on_a_mixed_batch():
+    """The whole point: auto keeps more of every frame than either fixed
+    setting can, because half the batch is the wrong way round for it."""
+    def area(w, h, orient):
+        r = mod._crop_rect(w, h, "4:5", orient, 0, 0, "center", 0, 0)
+        return (r[2] - r[0]) * (r[3] - r[1])
+
+    batch = [(1024, 1536), (1536, 1024)]
+    auto = sum(area(w, h, "auto") for w, h in batch)
+    for fixed in ("portrait", "landscape"):
+        assert auto > sum(area(w, h, fixed) for w, h in batch), fixed

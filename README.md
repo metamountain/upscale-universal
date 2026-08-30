@@ -1,6 +1,6 @@
-# Upscale Crop Universal
+# Upscale Crop Universal — ComfyUI custom node
 
-**Upscale and crop in one ComfyUI node — with the model built in.**
+**Upscale and crop in one ComfyUI node — with the upscale model built in.**
 
 Five ways to ask for a size, all of them aspect-preserving and all of them working
 downwards as well as up. Then, optionally, a crop stage that cuts the exact format
@@ -66,7 +66,9 @@ checked in August 2026.
 image ──────►│ percent · factor · shortest   │─►│ 4:5 1:1 3:2   │──► image
 latent ─────►│ longest · megapixels          │  │ DIN 16:9 …    │──► latent
              │ aspect always preserved       │  │ off by default│──► width/height/info
-             └───────────────────────────────┘  └───────────────┘
+             ├───────────────────────────────┴──┴───────────────┤
+             │ width_height — an exact box, covered then cropped │
+             └──────────────────────────────────────────────────┘
 ```
 
 **Upscale** sets the size and never changes the shape. **Crop** takes the format
@@ -81,10 +83,22 @@ out of it, and only ever cuts — nothing is resampled a second time.
 | `shortest_side` | `min(w, h)` | feeding a model with a minimum edge |
 | `longest_side` | `max(w, h)` | fitting a print or a screen |
 | `megapixels` | total pixel count | staying inside a VRAM or upload budget |
+| `width_height` | **an exact box** | the output size is non-negotiable |
 
 Percent and factor are the same arithmetic, offered both ways because which one
 feels natural depends on the task. Every mode downscales when you give it a value
 below the current size — set `scale_factor` to 0.5 and this is your downscaler.
+
+The first five keep the aspect ratio. **`width_height` is the exception**, and the
+one to reach for when the output size is not negotiable: it scales until the box is
+covered, then crops to it, so you get exactly those dimensions from any source shape.
+It brings its own crop along and folds the crop block away — two crops arguing over
+one result would be nobody's idea of clear.
+
+That is *not* the same as `crop_ratio = custom`, which only cuts a window out of
+whatever the upscale happened to produce and clamps per axis when that was too small
+— ask both for a 3000×3000 square from a portrait source and only `width_height`
+gives you a square.
 
 `multiple_of` snaps the result so it survives a VAE. **8** suits SD, SDXL and Flux;
 `off` gives you the exact number you asked for, which is fine when the image is
@@ -111,9 +125,15 @@ Each format is written the way people say it — 4:5 is portrait, 16:9 is landsc
 and `crop_orientation` flips whichever you pick, so there are no mirrored duplicates
 in the list. Picking a format takes the **largest window of that shape that fits**.
 
-`crop_position` (center / top / bottom / left / right) and `crop_offset` decide what
-survives — the same controls as the JPS crop nodes. The offset is clamped to the
-slack the anchor leaves, so the window can never wander off the image.
+`crop_position` (center / top / bottom / left / right) plus `crop_offset_x` and
+`crop_offset_y` decide what survives — the JPS controls, with one offset per axis.
+Each is clamped to the slack the anchor leaves, so the window can never wander off
+the image.
+
+`crop_orientation` defaults to **`auto`**, which follows the frame: a portrait shot
+gets a portrait crop, a landscape one gets landscape. On a mixed batch that keeps
+more of every frame than either fixed setting can, since half of them would be the
+wrong way round for it.
 
 ## The model
 
@@ -147,15 +167,17 @@ nothing to do.
 `image`, `latent`, `width`, `height`, `info` — where `info` is a one-line readout of
 the sizes, the method actually used, the crop applied, and any fallback that kicked in.
 
-## Interface
+## The node
 
-The widget layout was designed before any of it was written:
-[`docs/interface.html`](docs/interface.html) is an interactive mockup of the node —
-click the coloured rows to see which widgets appear for which mode.
+<img src="docs/node.png" width="330" alt="The node with crop switched on: two blocks, and the crop preview showing what survives">
 
-Only the widgets that currently apply are shown. Switching `target_mode` swaps the
+Only the widgets that currently apply are drawn. Switching `target_mode` swaps the
 size field, `method` reveals or hides the model picker, and `crop` folds the whole
-second block away.
+second block away — so the node stays about six rows tall however much it can do.
+
+The panel at the bottom is the live crop preview: your own image with the discarded
+area dimmed and the surviving window framed, updating as you drag. It needs one full
+run first, since the image only exists inside the node while it executes.
 
 ## Install
 

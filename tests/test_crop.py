@@ -78,7 +78,7 @@ def test_offset_cannot_push_the_window_off_the_image():
     for off in (-8192, -500, 0, 500, 8192):
         for pos in ("center", "top", "bottom", "left", "right"):
             w, h, _ = _crop(crop_ratio="16:9", crop_orientation="landscape",
-                            crop_position=pos, crop_offset=off)
+                            crop_position=pos, crop_offset_y=off)
             assert (w, h) == base, (pos, off, w, h, base)
 
 

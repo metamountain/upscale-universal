@@ -18,10 +18,10 @@ import { api } from "../../scripts/api.js";
 const NODE = "UpscaleCropUniversal";
 
 const TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
-                      "longest_side", "megapixels"];
+                      "longest_side", "megapixels", "width_height"];
 const METHODS = ["model", "lanczos", "bicubic", "bilinear", "nearest", "area"];
 const RATIOS = ["custom", "4:5", "1:1", "4:3", "3:2", "DIN", "16:10", "16:9", "2:1", "21:9"];
-const ORIENTATIONS = ["portrait", "landscape"];
+const ORIENTATIONS = ["auto", "portrait", "landscape"];
 const CROP_POSITIONS = ["center", "top", "bottom", "left", "right"];
 const MULTIPLES = ["off", "2", "4", "8", "16", "32", "64"];
 
@@ -34,6 +34,9 @@ const MODE_WIDGET = {
     megapixels: "megapixels",
 };
 
+// width_height needs two fields rather than one, and forces the crop on.
+const BOX_WIDGETS = ["target_width", "target_height"];
+
 // Fallbacks for the optional widgets. ComfyUI's frontend can leave an
 // optional widget at null until it is touched, and a null fails server-side
 // validation before run() is ever called, so this is fixed on the widget
@@ -44,10 +47,13 @@ const OPTIONAL_DEFAULTS = {
     shortest_side: 1536,
     longest_side: 2048,
     megapixels: 2.0,
+    target_width: 1920,
+    target_height: 1080,
     crop: false,
     crop_width: 1024,
     crop_height: 1024,
-    crop_offset: 0,
+    crop_offset_x: 0,
+    crop_offset_y: 0,
 };
 
 const COMBO_VALUES = {
@@ -65,8 +71,9 @@ const COMBO_VALUES = {
 const PREVIEW_WIDGETS = [
     "target_mode", "method", "multiple_of",
     "scale_percent", "scale_factor", "shortest_side", "longest_side", "megapixels",
+    "target_width", "target_height",
     "crop", "crop_ratio", "crop_orientation", "crop_width", "crop_height",
-    "crop_position", "crop_offset",
+    "crop_position", "crop_offset_x", "crop_offset_y",
 ];
 const PREVIEW_DEBOUNCE_MS = 120;
 const PREVIEW_MAX_H = 150;
@@ -130,23 +137,33 @@ function updateVisibility(node) {
     const cropOn = widget(node, "crop")?.value === true;
     const ratio = widget(node, "crop_ratio")?.value;
 
-    // one size field, whichever the mode asks for
+    const box = mode === "width_height";
+
+    // one size field, whichever the mode asks for -- except width_height,
+    // which needs two
     for (const name of Object.values(MODE_WIDGET)) {
         setVisible(node, name, MODE_WIDGET[mode] === name);
     }
+    for (const name of BOX_WIDGETS) setVisible(node, name, box);
 
     // the model picker only exists for method = model
     setVisible(node, "upscale_model", method === "model");
 
-    // the whole crop block folds away when it is off
-    setVisible(node, "crop_ratio", cropOn);
-    setVisible(node, "crop_position", cropOn);
-    setVisible(node, "crop_offset", cropOn);
+    // width_height already crops to its box, so the crop block would only
+    // be a second crop arguing with the first -- it folds away entirely and
+    // just the framing controls stay, since those still decide what survives
+    const framing = box || cropOn;
+    setVisible(node, "crop", !box);
+    setVisible(node, "crop_ratio", cropOn && !box);
+    setVisible(node, "crop_position", framing);
+    setVisible(node, "crop_offset_x", framing);
+    setVisible(node, "crop_offset_y", framing);
     // custom takes pixels; a named format takes an orientation instead,
     // and a square has no orientation to take
-    setVisible(node, "crop_width", cropOn && ratio === "custom");
-    setVisible(node, "crop_height", cropOn && ratio === "custom");
-    setVisible(node, "crop_orientation", cropOn && ratio !== "custom" && ratio !== "1:1");
+    setVisible(node, "crop_width", cropOn && !box && ratio === "custom");
+    setVisible(node, "crop_height", cropOn && !box && ratio === "custom");
+    setVisible(node, "crop_orientation",
+               cropOn && !box && ratio !== "custom" && ratio !== "1:1");
 
     const size = node.computeSize();
     node.setSize([Math.max(node.size[0], size[0]), size[1]]);

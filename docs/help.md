@@ -1,4 +1,4 @@
-# Upscale Crop Universal — full reference
+# Upscale Crop Universal — ComfyUI custom node, full reference
 
 Every widget, what it does, and what it interacts with. The short version is in
 the [README](../README.md); this is the page to reach for when something behaves
@@ -30,6 +30,7 @@ apply are drawn:
 | `target_mode` | the one matching size field; the other four hide |
 | `method` → `model` | `upscale_model` appears |
 | `method` → anything else | `upscale_model` hides |
+| `target_mode` → `width_height` | `target_width` / `target_height` appear, and the crop block folds away — this mode crops by itself |
 | `crop` → on | the whole crop block appears |
 | `crop_ratio` → `custom` | `crop_width` / `crop_height` replace `crop_orientation` |
 | `crop_ratio` → `1:1` | `crop_orientation` hides — a square has no orientation |
@@ -45,9 +46,8 @@ that.
 
 ### `target_mode`
 
-Five ways of asking for a size. All keep the aspect ratio; none of them can
-distort the image. All work **downwards** too — a value below the current size
-downscales, and that is a supported use, not a mistake.
+Six ways of asking for a size. All work **downwards** too — a value below the
+current size downscales, and that is a supported use, not a mistake.
 
 | mode | pins | reach for it when |
 |---|---|---|
@@ -56,11 +56,36 @@ downscales, and that is a supported use, not a mistake.
 | `shortest_side` | `min(w, h)` | a model needs a minimum edge |
 | `longest_side` | `max(w, h)` | fitting a print, a screen, an upload limit |
 | `megapixels` | total pixel count | staying inside a VRAM or filesize budget |
+| `width_height` | **an exact box** | the output size is not negotiable |
+
+The first five keep the aspect ratio and cannot distort the image.
 
 `scale_percent` and `scale_factor` are the same arithmetic — `200%` and `×2.0`
 produce identical output. Both exist because which one feels natural depends on
 what you are doing, and translating in your head is a small tax you should not
 have to pay.
+
+### `width_height` — the exception
+
+The only mode that cannot preserve the aspect ratio, and the one to reach for when
+the output size is fixed by something outside your control — a platform, a print,
+a template.
+
+It scales until the box is **covered** on both axes, then crops to it. Covering
+rather than fitting, because a fit would leave bars and this node never pads. So a
+1024×1536 portrait asked for 1920×1080 scales by width to 1920×2880, then the crop
+takes the middle 1080 rows.
+
+Because it always crops, it brings its own: the crop block folds away and only
+`crop_position` and the two offsets stay, since those still decide which part
+survives. Your `crop` settings are overridden rather than combined — two crops
+arguing over one result would be nobody's idea of clear.
+
+**This is not `crop_ratio = custom`.** That one cuts a window out of whatever the
+upscale happened to produce, and clamps *per axis* when the image was too small —
+which does not even keep the shape you asked for. Ask both for 3000×3000 from a
+1024×1536 source: `width_height` gives you a 3000×3000 square, `custom` gives you
+the whole 1024×1536 frame.
 
 ### `method`
 
@@ -133,12 +158,22 @@ padding.
 
 ### `crop_orientation`
 
-Flips the chosen format. Hidden for `1:1` and for `custom`.
+Which way round the format sits. Hidden for `1:1` and for `custom`.
+
+| value | |
+|---|---|
+| `auto` | **default.** Follows the frame — a portrait shot gets a portrait crop, a landscape one gets landscape |
+| `portrait` | force tall |
+| `landscape` | force wide |
+
+`auto` is the one that matters on a **mixed batch**. Either fixed setting is the
+wrong way round for half the frames, and cuts a thin strip out of each of those;
+`auto` keeps more of every frame than either can.
 
 Each format above is written the way people say it — `4:5` is portrait, `16:9` is
-landscape — and orientation normalises whichever you pick. That is why the list
-has no mirrored duplicates like `5:4` or `9:16`: they are the same format with
-this switch thrown.
+landscape — and orientation normalises whichever you pick, so the list needs no
+mirrored duplicates like `5:4` or `9:16`. They are the same format with this
+switch thrown.
 
 ### `crop_width` / `crop_height`
 
@@ -146,22 +181,27 @@ Only visible when `crop_ratio = custom`. Exact pixel dimensions. Still subject t
 `multiple_of`, so asking for `900` with `multiple_of 8` gives you `896` — the
 `info` output says so. Larger than the image is clamped to the image.
 
-### `crop_position` and `crop_offset`
+### `crop_position`, `crop_offset_x`, `crop_offset_y`
 
-Where the window sits, and a nudge from there. The same controls as the JPS crop
-nodes, so if you have used those this is familiar.
+Where the window sits, and a nudge from there. The JPS crop controls, with **one
+offset per axis**.
 
-| position | window sits | offset moves it |
-|---|---|---|
-| `center` | centred both ways | up / down |
-| `top` | flush to the top | down |
-| `bottom` | flush to the bottom | up |
-| `left` | flush to the left | right |
-| `right` | flush to the right | left |
+| position | window sits |
+|---|---|
+| `center` | centred both ways |
+| `top` | flush to the top, centred horizontally |
+| `bottom` | flush to the bottom, centred horizontally |
+| `left` | flush to the left, centred vertically |
+| `right` | flush to the right, centred vertically |
 
-The offset is **clamped to the slack the anchor leaves**, so the window can never
-wander off the image. Pushing past the edge simply stops there rather than giving
-you a short crop or an error.
+`crop_offset_x` moves it sideways (positive = right), `crop_offset_y` up and down
+(positive = down). Two offsets rather than one because a single offset could only
+ever move along whichever axis the anchor left free — with `center` that meant no
+horizontal nudge at all, which is exactly when you most want one.
+
+Each is **clamped to the slack the anchor leaves**, independently, so the window can
+never wander off the image. Pushing past the edge simply stops there rather than
+giving you a short crop or an error.
 
 ---
 
@@ -256,7 +296,7 @@ Two things it deliberately does not do:
 python tests/run_tests.py
 ```
 
-37 tests, no pytest needed — the portable ComfyUI python does not ship it. They
+52 tests, no pytest needed — the portable ComfyUI python does not ship it. They
 run against a stubbed `folder_paths` and never touch a real model, so they work
 anywhere torch does.
 

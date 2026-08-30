@@ -83,5 +83,5 @@ def test_none_values_from_the_frontend_do_not_crash():
             target_mode=None, multiple_of=None, scale_factor=None,
             crop=None, crop_ratio=None, crop_orientation=None,
             crop_width=None, crop_height=None,
-            crop_position=None, crop_offset=None)
+            crop_position=None, crop_offset_x=None, crop_offset_y=None)
     assert r[0].shape[0] == 1

@@ -56,7 +56,7 @@ def test_preview_crop_size_matches_what_the_node_produces():
                  "method": "lanczos", "multiple_of": "8", "crop": True,
                  "crop_ratio": ratio, "crop_orientation": "portrait",
                  "crop_width": 1200, "crop_height": 900,
-                 "crop_position": pos, "crop_offset": 0}
+                 "crop_position": pos, "crop_offset_x": 0, "crop_offset_y": 0}
             p = mod._preview(d, c)
             r = run(mod, image=image(SRC_W, SRC_H), **d)
             assert p["crop"] == [int(r[0].shape[2]), int(r[0].shape[1])], \
@@ -70,7 +70,7 @@ def test_preview_rect_is_normalised_and_inside_the_frame():
             d = {"target_mode": "scale_factor", "scale_factor": 2.0,
                  "method": "lanczos", "multiple_of": "8", "crop": True,
                  "crop_ratio": "16:9", "crop_orientation": "landscape",
-                 "crop_position": pos, "crop_offset": off}
+                 "crop_position": pos, "crop_offset_y": off}
             x0, y0, x1, y1 = mod._preview(d, c)["rect"]
             assert 0 <= x0 < x1 <= 1.0001, (pos, off, x0, x1)
             assert 0 <= y0 < y1 <= 1.0001, (pos, off, y0, y1)
@@ -89,7 +89,7 @@ def test_preview_survives_rubbish_from_the_browser():
         {"target_mode": None, "scale_factor": None, "multiple_of": None},
         {"target_mode": "nonsense", "method": 7, "multiple_of": "x"},
         {"target_mode": "scale_factor", "scale_factor": "two"},
-        {"crop": True, "crop_ratio": "nope", "crop_offset": None},
+        {"crop": True, "crop_ratio": "nope", "crop_offset_x": None, "crop_offset_y": None},
         {},
     ]:
         p = mod._preview(bad, c)
