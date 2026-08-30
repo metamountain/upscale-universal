@@ -284,8 +284,21 @@ function buildPreview(node) {
     });
     window_.appendChild(size);
 
+    // The size the upscale produced, shown on the picture rather than only in
+    // the text row -- when a crop_ratio reshapes the box you typed, having
+    // both numbers side by side is the difference between "why 832x832?" and
+    // "ah, the 1:1 took a square out of it".
+    const upSize = document.createElement("span");
+    Object.assign(upSize.style, {
+        position: "absolute", left: "3px", top: "3px",
+        font: "600 8.5px monospace", color: "#dfe3e9",
+        background: "rgba(9,11,14,.75)", padding: "1px 5px",
+        borderRadius: "2px", whiteSpace: "nowrap", pointerEvents: "none",
+    });
+
     stage.appendChild(img);
     stage.appendChild(window_);
+    stage.appendChild(upSize);
 
     const holder = document.createElement("div");
     Object.assign(holder.style, { display: "flex", justifyContent: "center" });
@@ -320,6 +333,8 @@ function buildPreview(node) {
         stage.style.height = Math.max(24, Math.round(uh * fit)) + "px";
         stage.style.display = "block";
 
+        upSize.textContent = uw + "\u00d7" + uh;
+
         if (d.rect && d.crop) {
             const [x0, y0, x1, y1] = d.rect;
             window_.style.left = (x0 * 100).toFixed(2) + "%";
@@ -343,7 +358,17 @@ function buildPreview(node) {
                 ? d.ratio : d.ratio + " " + d.orientation;
             bits.push(shape + " " + d.position + " → " + d.crop[0] + "×" + d.crop[1]);
         }
-        if (d.crop) bits.push("drag to place");
+        if (d.crop) {
+            const boxW = widget(node, "target_width")?.value;
+            const boxH = widget(node, "target_height")?.value;
+            const usesBox = d.ratio === "custom" ||
+                            widget(node, "target_mode")?.value === "width_height";
+            if (!usesBox && boxW && boxH && (d.crop[0] !== boxW || d.crop[1] !== boxH)) {
+                bits.push("crop_ratio " + d.ratio + " reshapes the box \u2014 " +
+                          "set crop_ratio to custom for " + boxW + "\u00d7" + boxH);
+            }
+            bits.push("drag to place");
+        }
         status.textContent = bits.join(" | ");
     }
 

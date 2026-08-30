@@ -806,6 +806,7 @@ def _preview(data, cached):
         out["rect"] = [round(v, 5) for v in rect]
         out["crop"] = [cw, ch]
         out["ratio"] = ratio
+        out["box"] = list(box)
         out["orientation"] = orient
         out["position"] = pos
 
