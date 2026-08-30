@@ -55,7 +55,7 @@ def test_preview_crop_size_matches_what_the_node_produces():
             d = {"target_mode": "scale_factor", "scale_factor": 2.0,
                  "method": "lanczos", "multiple_of": "8", "crop": True,
                  "crop_ratio": ratio, "crop_orientation": "portrait",
-                 "crop_width": 1200, "crop_height": 900,
+                 "target_width": 1200, "target_height": 900,
                  "crop_position": pos, "crop_offset_x": 0, "crop_offset_y": 0}
             p = mod._preview(d, c)
             r = run(mod, image=image(SRC_W, SRC_H), **d)

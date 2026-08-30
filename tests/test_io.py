@@ -82,6 +82,7 @@ def test_none_values_from_the_frontend_do_not_crash():
     r = run(mod, image=image(256, 256), method="lanczos",
             target_mode=None, multiple_of=None, scale_factor=None,
             crop=None, crop_ratio=None, crop_orientation=None,
-            crop_width=None, crop_height=None,
-            crop_position=None, crop_offset_x=None, crop_offset_y=None)
+            target_width=None, target_height=None,
+            crop_position=None, crop_offset_x=None, crop_offset_y=None,
+            crop_seed=None)
     assert r[0].shape[0] == 1

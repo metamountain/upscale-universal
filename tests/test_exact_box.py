@@ -80,20 +80,19 @@ def test_it_overrides_the_manual_crop_rather_than_stacking():
 def test_it_is_not_the_same_as_custom_crop():
     """The distinction worth being clear about.
 
-    width_height scales to cover the box first, so it always lands on it
-    exactly. custom only cuts from whatever the upscale happened to produce,
-    and when that is too small it clamps PER AXIS -- which does not even keep
-    the shape you asked for. Ask both for a 3000x3000 square from a portrait
-    source and only one of them gives you a square.
+    width_height scales the image to cover the box, so it lands on those exact
+    dimensions. A custom crop never rescales -- it cuts the largest window of
+    the shape you asked for out of what is already there. Both keep the shape;
+    only width_height guarantees the size.
     """
     assert _box(3000, 3000, src=(1024, 1536))[:2] == (3000, 3000)
 
     r = run(mod, image=image(1024, 1536), method="lanczos",
             target_mode="scale_factor", scale_factor=1.0, crop=True,
-            crop_ratio="custom", crop_width=3000, crop_height=3000,
+            crop_ratio="custom", target_width=3000, target_height=3000,
             multiple_of="off")
-    clamped = (int(r[0].shape[2]), int(r[0].shape[1]))
-    assert clamped == (1024, 1536), clamped   # the whole frame, not a square
+    got = (int(r[0].shape[2]), int(r[0].shape[1]))
+    assert got == (1024, 1024), got           # the biggest square that fits
 
 
 def test_latent_lands_on_the_box_in_latent_cells():
@@ -189,10 +188,22 @@ def test_custom_and_width_height_scale_the_same():
 
 
 def test_custom_lets_you_do_the_crop_yourself():
+    """One box serves both stages: custom covers it, then the crop cuts the
+    same box out -- so switching the crop on gets you to exactly the size
+    width_height would have given, but by your own decision."""
     r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
             target_width=1920, target_height=1080, multiple_of="off",
-            crop=True, crop_ratio="custom", crop_width=1920, crop_height=1080)
+            crop=True, crop_ratio="custom")
     assert (int(r[0].shape[2]), int(r[0].shape[1])) == (1920, 1080)
+
+
+def test_custom_with_a_named_format_crops_to_that_instead():
+    """The box sized it; a named ratio then frames it however you like."""
+    r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
+            target_width=1920, target_height=1080, multiple_of="off",
+            crop=True, crop_ratio="1:1")
+    w, h = int(r[0].shape[2]), int(r[0].shape[1])
+    assert w == h, (w, h)
 
 
 def test_custom_obeys_multiple_of():
@@ -251,3 +262,42 @@ def test_random_frames_image_and_latent_alike():
     iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert abs(iw / ih - lw / lh) < 0.05, (iw, ih, lw, lh)
+
+
+
+def test_a_custom_box_too_big_keeps_its_shape():
+    """It shrinks proportionally to the largest window that fits, the way the
+    named formats do -- clamping each axis on its own would hand back some
+    other shape entirely."""
+    for cw, ch, want_ar in [(3000, 3000, 1.0), (1920, 1080, 16 / 9),
+                            (1000, 4000, 0.25)]:
+        r = run(mod, image=image(1024, 1536), method="lanczos",
+                target_mode="scale_factor", scale_factor=2.0, crop=True,
+                crop_ratio="custom", target_width=cw, target_height=ch,
+                multiple_of="off")
+        w, h = int(r[0].shape[2]), int(r[0].shape[1])
+        assert w <= 2048 and h <= 3072, (cw, ch, w, h)
+        assert abs(w / h - want_ar) < 0.02, (cw, ch, w / h, want_ar)
+
+
+def test_a_custom_box_that_fits_is_left_alone():
+    """Only an oversized box is scaled down; one that fits is taken as given."""
+    r = run(mod, image=image(1024, 1536), method="lanczos",
+            target_mode="scale_factor", scale_factor=2.0, crop=True,
+            crop_ratio="custom", target_width=800, target_height=600,
+            multiple_of="off")
+    assert (int(r[0].shape[2]), int(r[0].shape[1])) == (800, 600)
+
+
+def test_every_crop_takes_the_largest_window_that_fits():
+    """The promise across the whole crop stage: named formats and custom boxes
+    alike give you as much of the image as their shape allows."""
+    for kw in [dict(crop_ratio="1:1"), dict(crop_ratio="16:9"),
+               dict(crop_ratio="custom", target_width=3000, target_height=3000),
+               dict(crop_ratio="custom", target_width=6000, target_height=3000)]:
+        r = run(mod, image=image(1024, 1536), method="lanczos",
+                target_mode="scale_factor", scale_factor=2.0, crop=True,
+                crop_orientation="landscape", multiple_of="off", **kw)
+        w, h = int(r[0].shape[2]), int(r[0].shape[1])
+        # touching at least one edge is what "largest that fits" means
+        assert w == 2048 or h == 3072, (kw, w, h)

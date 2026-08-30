@@ -32,7 +32,8 @@ apply are drawn:
 | `method` → anything else | `upscale_model` hides |
 | `target_mode` → `width_height` | `target_width` / `target_height` appear, and the crop block folds away — this mode crops by itself |
 | `crop` → on | the whole crop block appears |
-| `crop_ratio` → `custom` | `crop_width` / `crop_height` replace `crop_orientation` |
+| `crop_ratio` → `custom` | `target_width` / `target_height` replace `crop_orientation` |
+| `crop_position` → `random` | `crop_seed` appears |
 | `crop_ratio` → `1:1` | `crop_orientation` hides — a square has no orientation |
 
 A hidden widget **keeps its value**. It is not reset, it is just not in use.
@@ -168,11 +169,15 @@ resampled a second time.
 | `16:9` | HD video |
 | `2:1` | univisium |
 | `21:9` | cinemascope |
-| `custom` | your own `crop_width` × `crop_height` |
+| `custom` | the `target_width` × `target_height` box above |
 
-Picking a format takes the **largest window of that shape that fits** inside the
-upscaled image. You never get a window bigger than the image, and you never get
-padding.
+**Every crop takes the largest window of its shape that fits** inside the upscaled
+image. You never get a window bigger than the image, and you never get padding.
+
+That holds for `custom` too: a box larger than the image shrinks *proportionally* to
+the largest one that fits, keeping the shape you asked for. Clamping each axis on its
+own would hand back some other shape entirely — ask for a square from a portrait
+frame and you would get the whole portrait frame.
 
 ### `crop_orientation`
 
@@ -193,11 +198,14 @@ landscape — and orientation normalises whichever you pick, so the list needs n
 mirrored duplicates like `5:4` or `9:16`. They are the same format with this
 switch thrown.
 
-### `crop_width` / `crop_height`
+### The box: `target_width` / `target_height`
 
-Only visible when `crop_ratio = custom`. Exact pixel dimensions. Still subject to
-`multiple_of`, so asking for `900` with `multiple_of 8` gives you `896` — the
-`info` output says so. Larger than the image is clamped to the image.
+One pair of widgets, shared by everything that needs a width × height: the
+`width_height` and `custom` target modes, and `crop_ratio = custom`. Two separate
+pairs would only invite the question of which one you were meant to set.
+
+Still subject to `multiple_of`, so asking for `900` with `multiple_of 8` gives you
+`896` — the `info` output says so.
 
 ### `crop_position`, `crop_offset_x`, `crop_offset_y`
 
@@ -327,7 +335,7 @@ Two things it deliberately does not do:
 python tests/run_tests.py
 ```
 
-61 tests, no pytest needed — the portable ComfyUI python does not ship it. They
+65 tests, no pytest needed — the portable ComfyUI python does not ship it. They
 run against a stubbed `folder_paths` and never touch a real model, so they work
 anywhere torch does.
 

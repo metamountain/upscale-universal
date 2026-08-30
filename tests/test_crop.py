@@ -54,20 +54,20 @@ def test_every_format_fits_inside_and_keeps_its_shape():
 
 
 def test_custom_uses_the_given_pixels():
-    w, h, _ = _crop(crop_ratio="custom", crop_width=1200, crop_height=900,
+    w, h, _ = _crop(crop_ratio="custom", target_width=1200, target_height=900,
                     multiple_of="off")
     assert (w, h) == (1200, 900), (w, h)
 
 
 def test_custom_pixels_still_obey_multiple_of():
     """900 is not a multiple of 8, so it must come back snapped, not exact."""
-    w, h, _ = _crop(crop_ratio="custom", crop_width=1200, crop_height=900,
+    w, h, _ = _crop(crop_ratio="custom", target_width=1200, target_height=900,
                     multiple_of="8")
     assert (w, h) == (1200, 896), (w, h)
 
 
 def test_custom_larger_than_the_image_is_clamped():
-    w, h, _ = _crop(crop_ratio="custom", crop_width=9000, crop_height=9000)
+    w, h, _ = _crop(crop_ratio="custom", target_width=9000, target_height=9000)
     assert w <= 2048 and h <= 3072, (w, h)
 
 

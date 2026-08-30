@@ -167,8 +167,16 @@ def _crop_rect(w, h, ratio, orientation, cw, ch, position, off_x, off_y, seed=0)
     with pixel numbers meant for the image.
     """
     if ratio == "custom":
-        box_w = min(float(cw), float(w))
-        box_h = min(float(ch), float(h))
+        box_w, box_h = max(1.0, float(cw)), max(1.0, float(ch))
+        # A box bigger than the image shrinks PROPORTIONALLY to the largest
+        # one that fits, keeping the shape you asked for. Clamping each axis
+        # on its own instead would hand back a window of some other shape
+        # entirely -- ask for a square from a portrait frame and you would get
+        # the whole portrait frame. Every named format already takes the
+        # largest window of its shape that fits; custom now does the same.
+        fit = min(w / box_w, h / box_h, 1.0)
+        box_w *= fit
+        box_h *= fit
     else:
         rw, rh = RATIOS[ratio]
         ar = rw / rh
@@ -447,28 +455,28 @@ class UpscaleCropUniversal:
                 "megapixels": ("FLOAT", {"default": 2.0, "min": 0.05, "max": 64.0, "step": 0.05,
                                          "tooltip": "Used by target_mode megapixels. Pins the total pixel count; the shape is unchanged."}),
                 "target_width": ("INT", {"default": 1920, "min": 16, "max": 16384, "step": 8,
-                                         "tooltip": "The box width, for target_mode width_height and custom. width_height gives you exactly this; custom scales until it is covered and leaves the crop to you."}),
+                                         "tooltip": "Width of the box. Used by target_mode width_height (which gives you exactly this) and custom (which covers it and leaves the crop to you), and by crop_ratio 'custom' as the shape to cut."}),
                 "target_height": ("INT", {"default": 1080, "min": 16, "max": 16384, "step": 8,
-                                          "tooltip": "The box height, for target_mode width_height and custom. width_height gives you exactly this; custom scales until it is covered and leaves the crop to you."}),
+                                          "tooltip": "Height of the box. Used by target_mode width_height (which gives you exactly this) and custom (which covers it and leaves the crop to you), and by crop_ratio 'custom' as the shape to cut."}),
                 "crop": ("BOOLEAN", {"default": False,
                                      "tooltip": "Off = pure upscaler. On = cut the format out of the result afterwards."}),
                 "crop_ratio": (RATIO_NAMES, {"default": "4:5",
-                                             "tooltip": "The format to cut. Takes the largest window of that shape that fits. 'custom' uses crop_width and crop_height instead."}),
+                                             "tooltip": "The format to cut. Always takes the largest window of that shape that fits. 'custom' uses the target_width x target_height box above as the shape."}),
                 "crop_orientation": (ORIENTATIONS, {"default": "auto",
                                                     "tooltip": "Which way round the format sits. 'auto' follows the source, so a portrait frame gets a portrait crop and a landscape one gets landscape -- the right choice for a mixed batch. Force it with portrait or landscape. Ignored for 1:1 and for custom."}),
-                "crop_width": ("INT", {"default": 1024, "min": 16, "max": 16384, "step": 8,
-                                       "tooltip": "Only used when crop_ratio is 'custom'."}),
-                "crop_height": ("INT", {"default": 1024, "min": 16, "max": 16384, "step": 8,
-                                        "tooltip": "Only used when crop_ratio is 'custom'."}),
                 "crop_position": (CROP_POSITIONS, {"default": "center",
                                                    "tooltip": "Where the window sits before the offsets nudge it. 'random' places it anywhere that fits, driven by crop_seed -- for varying the framing across a batch or a dataset."}),
-                "crop_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
-                                      "control_after_generate": True,
-                                      "tooltip": "Only used when crop_position is 'random'. The same seed always gives the same window, so a result you liked can be reproduced; set control_after_generate to randomize for a new one each run."}),
                 "crop_offset_x": ("INT", {"default": 0, "min": -8192, "max": 8192, "step": 8,
                                           "tooltip": "Nudge the window sideways in px. Positive moves right. Clamped so it can never leave the image."}),
                 "crop_offset_y": ("INT", {"default": 0, "min": -8192, "max": 8192, "step": 8,
-                                          "tooltip": "Nudge the window up or down in px. Positive moves down. Clamped so it can never leave the image."}),
+                                          "tooltip": "Nudge the window up or down in px. Positive moves down. Clamped so it can never leave the image. You can also just drag the window in the preview."}),
+                # NEW WIDGETS GO HERE, AT THE END, NEVER IN THE MIDDLE.
+                # ComfyUI restores a saved workflow's values by position, so
+                # inserting one shifts every later widget's value into the
+                # wrong slot. This order is frozen as of 0.1.0.
+                "crop_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
+                                      "control_after_generate": True,
+                                      "tooltip": "Only used when crop_position is 'random'. The same seed always gives the same window, so a framing you liked can be reproduced; set control_after_generate to randomize for a new one each run."}),
             },
         }
 
@@ -483,7 +491,6 @@ class UpscaleCropUniversal:
             longest_side=2048, megapixels=2.0,
             target_width=1920, target_height=1080,
             crop=False, crop_ratio="4:5", crop_orientation="auto",
-            crop_width=1024, crop_height=1024,
             crop_position="center", crop_offset_x=0, crop_offset_y=0,
             crop_seed=0, unique_id=None):
 
@@ -503,8 +510,6 @@ class UpscaleCropUniversal:
         if crop is None: crop = False
         if crop_ratio is None: crop_ratio = "4:5"
         if crop_orientation is None: crop_orientation = "auto"
-        if crop_width is None: crop_width = 1024
-        if crop_height is None: crop_height = 1024
         if crop_position is None: crop_position = "center"
         if crop_offset_x is None: crop_offset_x = 0
         if crop_offset_y is None: crop_offset_y = 0
@@ -534,7 +539,6 @@ class UpscaleCropUniversal:
                 exact_box = box
                 crop = True
                 crop_ratio = "custom"
-                crop_width, crop_height = box
 
         # ---- image path ------------------------------------------------
         out_image = None
@@ -608,15 +612,18 @@ class UpscaleCropUniversal:
         if crop:
             if img_dims:
                 ref_w, ref_h = img_dims
-                box_w, box_h = crop_width, crop_height
+                # width_height hands over its already-snapped box; anything
+                # else passes the raw one and lets _apply_rect snap at the end
+                box_w, box_h = exact_box or (target_width, target_height)
                 off_x, off_y = crop_offset_x, crop_offset_y
             else:
                 # No image, so the reference is the latent -- and a custom box
                 # and the offsets are given in image pixels, so they have to
                 # come down to latent cells or they would overshoot eightfold.
                 ref_w, ref_h = int(out_latent.shape[3]), int(out_latent.shape[2])
-                box_w = max(1, int(crop_width) // 8)
-                box_h = max(1, int(crop_height) // 8)
+                src_box = exact_box or (target_width, target_height)
+                box_w = max(1, int(src_box[0]) // 8)
+                box_h = max(1, int(src_box[1]) // 8)
                 off_x, off_y = crop_offset_x / 8.0, crop_offset_y / 8.0
             rect = _crop_rect(ref_w, ref_h, crop_ratio, crop_orientation,
                               box_w, box_h, crop_position, off_x, off_y,
@@ -766,7 +773,7 @@ def _preview(data, cached):
         ratio = "custom" if exact_box else txt("crop_ratio", "4:5", RATIO_NAMES)
         orient = txt("crop_orientation", "auto", ORIENTATIONS)
         pos = txt("crop_position", "center", CROP_POSITIONS)
-        box = exact_box or (num("crop_width", 1024), num("crop_height", 1024))
+        box = exact_box or (num("target_width", 1920), num("target_height", 1080))
         rect = _crop_rect(up_w, up_h, ratio, orient, box[0], box[1],
                           pos, num("crop_offset_x", 0), num("crop_offset_y", 0),
                           int(num("crop_seed", 0)))

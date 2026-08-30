@@ -28,16 +28,11 @@ const ORIENTATIONS = ["auto", "portrait", "landscape"];
 const CROP_POSITIONS = ["center", "top", "bottom", "left", "right", "random"];
 const MULTIPLES = ["off", "2", "4", "8", "16", "32", "64"];
 
-// Which size widget belongs to which target_mode.
-const MODE_WIDGET = {
-    scale_percent: "scale_percent",
-    scale_factor: "scale_factor",
-    shortest_side: "shortest_side",
-    longest_side: "longest_side",
-    megapixels: "megapixels",
-};
+// The modes whose widget is simply named after them.
+const SIZE_WIDGETS = ["scale_percent", "scale_factor", "shortest_side",
+                      "longest_side", "megapixels"];
 
-// width_height needs two fields rather than one, and forces the crop on.
+// One width x height box, shared by the box modes and a custom crop shape.
 const BOX_WIDGETS = ["target_width", "target_height"];
 
 // Fallbacks for the optional widgets. ComfyUI's frontend can leave an
@@ -53,8 +48,6 @@ const OPTIONAL_DEFAULTS = {
     target_width: 1920,
     target_height: 1080,
     crop: false,
-    crop_width: 1024,
-    crop_height: 1024,
     crop_offset_x: 0,
     crop_offset_y: 0,
     crop_seed: 0,
@@ -76,7 +69,7 @@ const PREVIEW_WIDGETS = [
     "target_mode", "method", "multiple_of",
     "scale_percent", "scale_factor", "shortest_side", "longest_side", "megapixels",
     "target_width", "target_height",
-    "crop", "crop_ratio", "crop_orientation", "crop_width", "crop_height",
+    "crop", "crop_ratio", "crop_orientation",
     "crop_position", "crop_offset_x", "crop_offset_y", "crop_seed",
 ];
 const PREVIEW_DEBOUNCE_MS = 120;
@@ -145,12 +138,11 @@ function updateVisibility(node) {
     const box = BOX_MODES.includes(mode);
     const autoCrops = mode === "width_height";
 
-    // one size field, whichever the mode asks for -- except width_height,
-    // which needs two
-    for (const name of Object.values(MODE_WIDGET)) {
-        setVisible(node, name, MODE_WIDGET[mode] === name);
-    }
-    for (const name of BOX_WIDGETS) setVisible(node, name, box);
+    // one size field, whichever the mode is named after
+    for (const name of SIZE_WIDGETS) setVisible(node, name, name === mode);
+    // one box serves both the box modes and a custom-shaped crop
+    const customCrop = cropOn && !autoCrops && ratio === "custom";
+    for (const name of BOX_WIDGETS) setVisible(node, name, box || customCrop);
 
     // the model picker only exists for method = model
     setVisible(node, "upscale_model", method === "model");
@@ -166,10 +158,8 @@ function updateVisibility(node) {
     setVisible(node, "crop_offset_y", framing);
     // the seed only means anything to the random placement
     setVisible(node, "crop_seed", framing && position === "random");
-    // custom takes pixels; a named format takes an orientation instead,
-    // and a square has no orientation to take
-    setVisible(node, "crop_width", cropOn && !autoCrops && ratio === "custom");
-    setVisible(node, "crop_height", cropOn && !autoCrops && ratio === "custom");
+    // custom takes the box above; a named format takes an orientation
+    // instead, and a square has no orientation to take
     setVisible(node, "crop_orientation",
                cropOn && !autoCrops && ratio !== "custom" && ratio !== "1:1");
 
@@ -243,7 +233,9 @@ function buildPreview(node) {
     Object.assign(window_.style, {
         position: "absolute", border: "1px solid rgba(79,195,161,.85)",
         boxShadow: "0 0 0 999px rgba(9,11,14,.68)", display: "none",
+        cursor: "move", touchAction: "none",
     });
+    window_.title = "Drag to place the crop";
 
     const size = document.createElement("span");
     Object.assign(size.style, {
@@ -275,8 +267,10 @@ function buildPreview(node) {
 
     let timer = null;
     let abort = null;
+    let last = null;          // the last preview payload, for the drag maths
 
     function draw(d) {
+        last = d;
         img.src = "data:image/png;base64," + d.png;
 
         // fit the real dimensions into the panel, capped both ways, so a
@@ -311,8 +305,90 @@ function buildPreview(node) {
                 ? d.ratio : d.ratio + " " + d.orientation;
             bits.push(shape + " " + d.position + " → " + d.crop[0] + "×" + d.crop[1]);
         }
+        if (d.crop) bits.push("drag to place");
         status.textContent = bits.join(" | ");
     }
+
+    // ---- drag the window ------------------------------------------------
+    //
+    // The anchor plus two offsets are precise but slow to aim with. Dragging
+    // writes back into those same offsets rather than introducing a second
+    // way of storing the position, so the widgets stay the single source of
+    // truth and a dragged crop is still reproducible from the saved graph.
+
+    function setWidget(name, value) {
+        const w = widget(node, name);
+        if (!w) return;
+        w.value = value;
+        w.callback?.(value);
+    }
+
+    function beginDrag(ev) {
+        if (!last || !last.rect || !last.crop) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        const [uw, uh] = last.up;
+        const [cw, ch] = last.crop;
+        const slackX = Math.max(0, uw - cw);
+        const slackY = Math.max(0, uh - ch);
+        if (slackX < 1 && slackY < 1) return;      // nothing to move
+
+        // screen px -> image px
+        const rect = stage.getBoundingClientRect();
+        const perPxX = uw / Math.max(1, rect.width);
+        const perPxY = uh / Math.max(1, rect.height);
+
+        // A random placement has no anchor to offset from, so taking hold of
+        // the window means taking manual control: it becomes a centre anchor
+        // at wherever you drop it.
+        let position = widget(node, "crop_position")?.value ?? "center";
+        if (position === "random") {
+            position = "center";
+            setWidget("crop_position", "center");
+        }
+        const baseX = position === "left" ? 0
+                    : position === "right" ? slackX : slackX / 2;
+        const baseY = position === "top" ? 0
+                    : position === "bottom" ? slackY : slackY / 2;
+
+        const startX = ev.clientX, startY = ev.clientY;
+        const startLeft = last.rect[0] * uw;
+        const startTop = last.rect[1] * uh;
+        let endX = startLeft, endY = startTop;
+
+        function onMove(e) {
+            // draw it locally while dragging -- a round trip per mouse move
+            // would lag behind the cursor
+            endX = Math.max(0, Math.min(slackX, startLeft + (e.clientX - startX) * perPxX));
+            endY = Math.max(0, Math.min(slackY, startTop + (e.clientY - startY) * perPxY));
+            window_.style.left = ((endX / uw) * 100).toFixed(3) + "%";
+            window_.style.top = ((endY / uh) * 100).toFixed(3) + "%";
+        }
+
+        function onUp() {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            setWidget("crop_offset_x", Math.round(endX - baseX));
+            setWidget("crop_offset_y", Math.round(endY - baseY));
+            node.setDirtyCanvas(true, true);
+            schedule(0);          // confirm against the backend's own maths
+        }
+
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+    }
+
+    window_.addEventListener("pointerdown", beginDrag);
+
+    // double-click puts it back to the anchor
+    window_.addEventListener("dblclick", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        setWidget("crop_offset_x", 0);
+        setWidget("crop_offset_y", 0);
+        schedule(0);
+    });
 
     async function fetchPreview() {
         abort?.abort();

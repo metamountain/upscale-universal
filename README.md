@@ -2,9 +2,9 @@
 
 **Upscale and crop in one ComfyUI node — with the upscale model built in.**
 
-Five ways to ask for a size, all of them aspect-preserving and all of them working
-downwards as well as up. Then, optionally, a crop stage that cuts the exact format
-out of the result. The upscale model is picked by a widget straight from your
+Seven ways to ask for a size, all of them working downwards as well as up. Then,
+optionally, a crop stage that cuts the exact format out of the result — drag the
+window in the live preview to place it. The upscale model is picked by a widget straight from your
 `models/upscale_models` folder, so there is no Load Upscale Model node to wire up.
 
 Everything runs in torch and handles batches.
@@ -45,7 +45,7 @@ normalised coordinates so the two come out framed identically. `multiple_of` div
 by 8 on the latent path, because a latent cell *is* eight pixels — snap a latent to 8
 directly and you have rounded it eight times too coarsely.
 
-**It is also your downscaler.** All five size modes work below 1.0. Most "upscale"
+**It is also your downscaler.** Every size mode works below 1.0. Most "upscale"
 nodes refuse or misbehave going down; `area` is here precisely because it is the
 right kernel for it.
 
@@ -54,10 +54,9 @@ image with the discarded area dimmed, live as you drag. The numbers come from th
 same functions the node runs, so the preview cannot drift from the result — that is
 pinned by tests.
 
-**Honest comparison:** PlagueKind's crop box is *draggable*; ours is anchor plus
-offset (the JPS controls). If pulling a box with the mouse matters more to you than
-having the model built in, theirs is the better fit. Packs move fast — this was
-checked in August 2026.
+**Comparison, fairly:** these packs are good at what they do, and the pieces they
+share with this one are worth a look if the model being built in is not what you
+need. Packs move fast — this was checked in August 2026.
 
 ## The two stages
 
@@ -126,16 +125,23 @@ Off by default, so the node is a pure upscaler until you want a format.
 | `16:9` | HD video |
 | `2:1` | univisium |
 | `21:9` | cinemascope |
-| `custom` | your own `crop_width` × `crop_height` |
+| `custom` | the `target_width` × `target_height` box above |
 
 Each format is written the way people say it — 4:5 is portrait, 16:9 is landscape —
 and `crop_orientation` flips whichever you pick, so there are no mirrored duplicates
-in the list. Picking a format takes the **largest window of that shape that fits**.
+in the list. **Every crop takes the largest window of its shape that fits** — a named
+format, or a `custom` box, which shrinks proportionally rather than clamping per axis
+when you ask for more than the image has.
 
 `crop_position` (center / top / bottom / left / right / **random**) plus
-`crop_offset_x` and `crop_offset_y` decide what survives — the JPS controls, with one offset per axis.
-Each is clamped to the slack the anchor leaves, so the window can never wander off
-the image.
+`crop_offset_x` and `crop_offset_y` decide what survives — the JPS controls, with one
+offset per axis. Each is clamped to the slack the anchor leaves, so the window can
+never wander off the image.
+
+**Or just drag it.** The window in the live preview is draggable: grab it, drop it,
+and the offsets update to match. Double-click puts it back to the anchor. Dragging
+writes into those same two widgets rather than storing the position somewhere else,
+so a dragged crop still saves and reproduces like any other setting.
 
 **`random`** places the window anywhere it fits, driven by `crop_seed` — for varying
 the framing across a batch or building a dataset. It is seeded rather than
@@ -203,6 +209,6 @@ ComfyUI itself (`spandrel`, used to load upscale models, already ships with it).
 python tests/run_tests.py
 ```
 
-30 tests, no pytest needed — the portable ComfyUI python does not have it. They run
+65 tests, no pytest needed — the portable ComfyUI python does not have it. They run
 against a stubbed `folder_paths` and never touch a real model, so they work anywhere
 torch does.
