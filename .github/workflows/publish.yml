@@ -1,0 +1,33 @@
+name: Publish to Comfy Registry
+
+# Being on the registry is what makes the node findable through
+# ComfyUI-Manager's search instead of only via a direct GitHub link.
+#
+# Two things a human with registry access has to do once before this can
+# succeed:
+#   1. Claim a publisher at https://registry.comfy.org and put its id into
+#      PublisherId in pyproject.toml (currently empty).
+#   2. Generate a Personal Access Token there and add it as this repo's
+#      REGISTRY_ACCESS_TOKEN secret (Settings -> Secrets and variables ->
+#      Actions).
+#
+# After that, bumping `version` in pyproject.toml and pushing to main
+# publishes a release automatically.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [pyproject.toml]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Comfy-Org/publish-node-action@v1
+        with:
+          personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}

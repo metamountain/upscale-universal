@@ -9,6 +9,56 @@ out of the result. The upscale model is picked by a widget straight from your
 
 Everything runs in torch and handles batches.
 
+## Why this one
+
+**The whole job is one node.** Getting "upscale with a model, land on an exact
+size, cut it to 4:5" out of stock ComfyUI takes a chain:
+
+```
+stock ComfyUI     Load Upscale Model ─► Upscale Image (using Model) ─►
+                  Upscale Image By ─► Image Crop ─► …and compute the numbers yourself
+
+this node         Upscale Crop Universal
+```
+
+**The model is a widget, not a socket.** Every comparable pack —
+[PlagueKind](https://github.com/PlagueKind/ComfyUI-PlagueKind-Nodes),
+[Studio-nodes](https://github.com/comfyuistudio/ComfyUI-Studio-nodes),
+[Deno2026](https://github.com/Deno2026/comfyui-deno-custom-nodes) — does resize and
+crop well, and **none of them upscale with a model at all.** Here `method` defaults
+to `model` and the file comes straight from `models/upscale_models`. No loader node,
+no dangling `UPSCALE_MODEL` wire across your graph.
+
+**It knows when *not* to use the model.** Ask for a downscale and the model is
+skipped entirely rather than burning VRAM to upscale something you are about to
+shrink. Ask for 2× with a 4× model and it upscales once, then comes back down —
+instead of leaving you with a needlessly huge intermediate. No model selected? It
+falls back to lanczos and says so in `info` instead of failing your queue.
+
+**One model pass, on purpose.** Running a 4× model twice gives 16× and stacks the
+artifacts. There is no pass-count widget to get wrong, and no tile size to babysit —
+tiling reuses ComfyUI's own and halves itself if VRAM runs short.
+
+**Latent and image, each sized on its own terms.** Connect either or both. A latent
+is never assumed to be the image divided by eight, and the crop is applied in
+normalised coordinates so the two come out framed identically. `multiple_of` divides
+by 8 on the latent path, because a latent cell *is* eight pixels — snap a latent to 8
+directly and you have rounded it eight times too coarsely.
+
+**It is also your downscaler.** All five size modes work below 1.0. Most "upscale"
+nodes refuse or misbehave going down; `area` is here precisely because it is the
+right kernel for it.
+
+**You see the crop before you queue.** The node draws the surviving window over your
+image with the discarded area dimmed, live as you drag. The numbers come from the
+same functions the node runs, so the preview cannot drift from the result — that is
+pinned by tests.
+
+**Honest comparison:** PlagueKind's crop box is *draggable*; ours is anchor plus
+offset (the JPS controls). If pulling a box with the mouse matters more to you than
+having the model built in, theirs is the better fit. Packs move fast — this was
+checked in August 2026.
+
 ## The two stages
 
 ```

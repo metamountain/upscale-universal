@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 // Upscale Crop Universal -- widget visibility.
 //
@@ -57,6 +58,18 @@ const COMBO_VALUES = {
     crop_orientation: ORIENTATIONS,
     crop_position: CROP_POSITIONS,
 };
+
+// Everything the preview depends on. upscale_model is not here: swapping the
+// model changes nothing the preview can show, since it draws the cached
+// thumbnail rather than re-running the upscale.
+const PREVIEW_WIDGETS = [
+    "target_mode", "method", "multiple_of",
+    "scale_percent", "scale_factor", "shortest_side", "longest_side", "megapixels",
+    "crop", "crop_ratio", "crop_orientation", "crop_width", "crop_height",
+    "crop_position", "crop_offset",
+];
+const PREVIEW_DEBOUNCE_MS = 120;
+const PREVIEW_MAX_H = 150;
 
 function widget(node, name) {
     return node.widgets?.find((w) => w.name === name);
@@ -175,7 +188,161 @@ app.registerExtension({
                 };
             }
 
+            buildPreview(this);
             updateVisibility(this);
         };
     },
 });
+
+// ---------------------------------------------------------------- preview
+//
+// One image with the discarded area dimmed, the way every crop tool shows it
+// -- two thumbnails side by side would each be half the size and the second
+// would only repeat what the frame already says.
+//
+// The backend hands back the cached thumbnail plus the numbers, computed by
+// the same functions the node runs, so the frame here is exactly what the
+// graph will cut. Nothing is re-rendered per keystroke.
+
+function buildPreview(node) {
+    const stage = document.createElement("div");
+    Object.assign(stage.style, {
+        position: "relative", borderRadius: "3px", overflow: "hidden",
+        background: "#191b1f", margin: "0 auto", display: "none",
+    });
+
+    const img = document.createElement("img");
+    Object.assign(img.style, { display: "block", width: "100%", height: "100%" });
+
+    const window_ = document.createElement("div");
+    Object.assign(window_.style, {
+        position: "absolute", border: "1px solid rgba(79,195,161,.85)",
+        boxShadow: "0 0 0 999px rgba(9,11,14,.68)", display: "none",
+    });
+
+    const size = document.createElement("span");
+    Object.assign(size.style, {
+        position: "absolute", left: "3px", bottom: "3px",
+        font: "600 8.5px monospace", color: "#08120e",
+        background: "#4fc3a1", padding: "1px 5px", borderRadius: "2px",
+        whiteSpace: "nowrap",
+    });
+    window_.appendChild(size);
+
+    stage.appendChild(img);
+    stage.appendChild(window_);
+
+    const holder = document.createElement("div");
+    Object.assign(holder.style, { display: "flex", justifyContent: "center" });
+    holder.appendChild(stage);
+
+    const status = document.createElement("div");
+    Object.assign(status.style, {
+        font: "9.5px monospace", color: "#7d8592", textAlign: "center",
+        padding: "3px 0", wordBreak: "break-word", lineHeight: "1.45",
+    });
+    status.textContent = "run the graph once to see a preview";
+
+    const wrap = document.createElement("div");
+    Object.assign(wrap.style, { display: "flex", flexDirection: "column", gap: "4px" });
+    wrap.appendChild(holder);
+    wrap.appendChild(status);
+
+    let timer = null;
+    let abort = null;
+
+    function draw(d) {
+        img.src = "data:image/png;base64," + d.png;
+
+        // fit the real dimensions into the panel, capped both ways, so a
+        // portrait source does not stretch the node to twice its height
+        const [uw, uh] = d.up;
+        const maxW = holder.clientWidth || 260;
+        const fit = Math.min(maxW / uw, PREVIEW_MAX_H / uh);
+        stage.style.width = Math.max(24, Math.round(uw * fit)) + "px";
+        stage.style.height = Math.max(24, Math.round(uh * fit)) + "px";
+        stage.style.display = "block";
+
+        if (d.rect && d.crop) {
+            const [x0, y0, x1, y1] = d.rect;
+            window_.style.left = (x0 * 100).toFixed(2) + "%";
+            window_.style.top = (y0 * 100).toFixed(2) + "%";
+            window_.style.width = ((x1 - x0) * 100).toFixed(2) + "%";
+            window_.style.height = ((y1 - y0) * 100).toFixed(2) + "%";
+            window_.style.display = "block";
+            size.textContent = d.crop[0] + "×" + d.crop[1];
+        } else {
+            window_.style.display = "none";
+        }
+
+        const bits = [
+            d.src[0] + "×" + d.src[1] + " → " + uw + "×" + uh,
+            d.method,
+            "×" + d.factor,
+        ];
+        if (d.multiple_of !== "off") bits.push("/" + d.multiple_of);
+        if (d.crop) {
+            let shape = d.ratio === "custom" || d.ratio === "1:1"
+                ? d.ratio : d.ratio + " " + d.orientation;
+            bits.push(shape + " " + d.position + " → " + d.crop[0] + "×" + d.crop[1]);
+        }
+        status.textContent = bits.join(" | ");
+    }
+
+    async function fetchPreview() {
+        abort?.abort();
+        abort = new AbortController();
+        const body = { node_id: String(node.id) };
+        for (const name of PREVIEW_WIDGETS) {
+            const w = widget(node, name);
+            if (w) body[name] = w.value;
+        }
+        try {
+            const res = await api.fetchApi("/upscale_crop_universal/preview", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+                signal: abort.signal,
+            });
+            const d = await res.json();
+            if (!d.ok) {
+                stage.style.display = "none";
+                status.textContent = d.message || "no preview yet";
+                return;
+            }
+            draw(d);
+        } catch (err) {
+            if (err?.name !== "AbortError") {
+                status.textContent = "preview failed: " + err;
+            }
+        }
+    }
+
+    function schedule(delay = PREVIEW_DEBOUNCE_MS) {
+        clearTimeout(timer);
+        timer = setTimeout(fetchPreview, delay);
+    }
+
+    // Re-render on every widget that matters, and again once the graph runs --
+    // that is when a fresh image lands in the cache.
+    for (const name of PREVIEW_WIDGETS) {
+        const w = widget(node, name);
+        if (!w) continue;
+        const orig = w.callback;
+        w.callback = function (...args) {
+            const r = orig?.apply(this, args);
+            schedule();
+            return r;
+        };
+    }
+
+    const onExecuted = node.onExecuted;
+    node.onExecuted = function (...args) {
+        const r = onExecuted?.apply(this, args);
+        schedule(0);
+        return r;
+    };
+
+    node.addDOMWidget("ucu_preview", "preview", wrap, { serialize: false });
+    schedule(0);
+}

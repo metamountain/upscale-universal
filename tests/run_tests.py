@@ -16,7 +16,7 @@ import traceback
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
-MODULES = ["test_sizing", "test_crop", "test_io"]
+MODULES = ["test_sizing", "test_crop", "test_io", "test_preview"]
 
 
 def main():

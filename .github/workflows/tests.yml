@@ -1,0 +1,25 @@
+name: Tests
+
+# The suite runs against a stubbed folder_paths and never loads a real model,
+# so plain CPU torch on a runner is enough.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu && pip install pillow numpy
+      - name: Run tests
+        run: python tests/run_tests.py

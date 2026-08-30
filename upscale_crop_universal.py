@@ -25,6 +25,9 @@ geometrically identical.
 All torch -> runs on the GPU and handles whole batches.
 """
 
+import base64
+import io
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -319,19 +322,28 @@ class UpscaleCropUniversal:
         "and the crop is applied in normalised coordinates so the two come out framed "
         "identically. Connect either or both.\n\n"
         "multiple_of snaps the result so it survives a VAE -- 8 suits SD, SDXL and "
-        "Flux; set it to off only when the image is going straight to disk."
+        "Flux; set it to off only when the image is going straight to disk.\n\n"
+        "IF NOTHING SEEMS TO HAPPEN. Only the widgets that currently apply are "
+        "shown, so switching target_mode swaps the size field and switching method "
+        "away from 'model' hides the model picker -- a value you set earlier is not "
+        "gone, just not in use. The info output always names the mode and method "
+        "that actually ran."
     )
 
-    SEARCH_ALIASES = [
-        "upscale", "upscale image", "upscale model", "esrgan", "resize", "rescale",
-        "scale image", "downscale", "crop", "crop image", "aspect ratio",
-        "shortest side", "longest side", "megapixels", "resolution",
-        "image scale", "upscale and crop", "format", "portrait", "landscape",
-        # German
-        "hochskalieren", "skalieren", "vergroessern", "verkleinern",
-        "zuschneiden", "beschneiden", "seitenverhaeltnis", "bildformat",
-        "aufloesung", "hochformat", "querformat",
-    ]
+    # ComfyUI's node search indexes name, display name, category and
+    # DESCRIPTION -- there is no dedicated keywords field, so the terms people
+    # actually type are appended to the description below rather than sitting
+    # in a list of their own that nothing reads.
+    SEARCH_TERMS = (
+        "upscale, upscale image, upscale with model, upscale by, image scale, "
+        "scale image, resize, rescale, downscale, shrink, enlarge, "
+        "esrgan, real-esrgan, ultrasharp, siax, remacri, 4x, 2x, "
+        "crop, crop image, center crop, aspect ratio, ratio, format, "
+        "shortest side, longest side, megapixels, resolution, dimensions, "
+        "portrait, landscape, square, 16:9, 4:5, 1:1, DIN, A4, "
+        "latent upscale, latent resize, hires fix, fit, cover, "
+        "letterbox, thumbnail, batch resize, exact size"
+    )
 
     OUTPUT_TOOLTIPS = (
         "The resized (and optionally cropped) image. A small placeholder if no image was connected.",
@@ -390,7 +402,7 @@ class UpscaleCropUniversal:
     RETURN_TYPES = ("IMAGE", "LATENT", "INT", "INT", "STRING")
     RETURN_NAMES = ("image", "latent", "width", "height", "info")
     FUNCTION = "run"
-    CATEGORY = "image/upscaling"
+    CATEGORY = "image/upscaling"      # next to ComfyUI's own upscale nodes
 
     def run(self, target_mode="scale_factor", method="model", multiple_of="8",
             image=None, samples=None, upscale_model=None,
@@ -423,6 +435,9 @@ class UpscaleCropUniversal:
             raise ValueError(
                 "Upscale Crop Universal: connect an image, a latent, or both — "
                 "there is nothing to resize.")
+
+        if unique_id is not None and image is not None:
+            _remember(unique_id, image)
 
         mult = 1 if multiple_of == "off" else int(multiple_of)
         notes = []
@@ -516,3 +531,124 @@ class UpscaleCropUniversal:
         parts.extend(notes)
 
         return (out_image, final, w, h, " | ".join(parts))
+
+
+# ---------------------------------------------------------------- live preview
+#
+# The node's preview needs an image to draw, and the only place one exists is
+# inside run(). So each run stashes a small copy keyed by the node's id, and
+# the route works from that. Before the graph has ever run there is nothing
+# cached -- the route says so rather than inventing something.
+#
+# The preview deliberately does NOT re-render the image. An upscale looks
+# identical at thumbnail size, so re-running the resize would cost real time to
+# show nothing new. What actually changes with the sliders are the numbers and
+# the crop rectangle, so the route returns those -- computed by the very same
+# functions run() uses, which is what keeps the preview honest -- and the
+# browser draws the frame over the cached thumbnail.
+
+_LAST_IMAGE = {}
+_CACHE_EDGE = 320
+
+
+def _png_b64(arr):
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="PNG", compress_level=3)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _remember(node_id, image):
+    """Keep a small copy of the last input for the preview."""
+    try:
+        x = image[:1].movedim(-1, 1).float()
+        h, w = int(x.shape[-2]), int(x.shape[-1])
+        edge = max(h, w)
+        if edge > _CACHE_EDGE:
+            k = _CACHE_EDGE / edge
+            x = F.interpolate(x, size=(max(1, round(h * k)), max(1, round(w * k))),
+                              mode="area")
+        a = (x[0].movedim(0, -1).clamp(0, 1).cpu().numpy() * 255).astype(np.uint8)
+        _LAST_IMAGE[str(node_id)] = {"png": _png_b64(a), "w": w, "h": h}
+        if len(_LAST_IMAGE) > 32:               # do not grow without bound
+            _LAST_IMAGE.pop(next(iter(_LAST_IMAGE)))
+    except Exception:
+        pass
+
+
+def _preview(data, cached):
+    """Everything the panel shows, from the same maths the node runs."""
+    src_w, src_h = cached["w"], cached["h"]
+
+    def num(key, default):
+        try:
+            v = data.get(key)
+            return default if v is None else float(v)
+        except (TypeError, ValueError):
+            return default
+
+    def txt(key, default, valid):
+        v = data.get(key)
+        return v if isinstance(v, str) and v in valid else default
+
+    mode = txt("target_mode", "scale_factor", TARGET_MODES)
+    method = txt("method", "model", METHODS)
+    mult_s = txt("multiple_of", "8", MULTIPLES)
+    mult = 1 if mult_s == "off" else int(mult_s)
+
+    k = _scale_for(src_w, src_h, mode, num("scale_percent", 200.0),
+                   num("scale_factor", 2.0), num("shortest_side", 1536),
+                   num("longest_side", 2048), num("megapixels", 2.0))
+    up_w, up_h = _target(src_w, src_h, k, mult)
+
+    out = {
+        "ok": True,
+        "png": cached["png"],
+        "src": [src_w, src_h],
+        "up": [up_w, up_h],
+        "factor": round(k, 3),
+        "method": method,
+        "multiple_of": mult_s,
+        "rect": None,
+        "crop": None,
+    }
+
+    if bool(data.get("crop")):
+        ratio = txt("crop_ratio", "4:5", RATIO_NAMES)
+        orient = txt("crop_orientation", "portrait", ORIENTATIONS)
+        pos = txt("crop_position", "center", CROP_POSITIONS)
+        rect = _crop_rect(up_w, up_h, ratio, orient,
+                          num("crop_width", 1024), num("crop_height", 1024),
+                          pos, num("crop_offset", 0))
+        cw = min(up_w, _snap((rect[2] - rect[0]) * up_w, mult))
+        ch = min(up_h, _snap((rect[3] - rect[1]) * up_h, mult))
+        out["rect"] = [round(v, 5) for v in rect]
+        out["crop"] = [cw, ch]
+        out["ratio"] = ratio
+        out["orientation"] = orient
+        out["position"] = pos
+
+    return out
+
+
+try:
+    import server
+    from aiohttp import web
+
+    @server.PromptServer.instance.routes.post("/upscale_crop_universal/preview")
+    async def _ucu_preview(request):
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        cached = _LAST_IMAGE.get(str(data.get("node_id", "")))
+        if cached is None:
+            return web.json_response(
+                {"ok": False,
+                 "message": "No image yet — run the graph once, then adjust."})
+        try:
+            return web.json_response(_preview(data, cached))
+        except Exception as exc:
+            return web.json_response(
+                {"ok": False, "message": f"{type(exc).__name__}: {exc}"})
+except Exception:
+    pass
