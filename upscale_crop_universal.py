@@ -458,7 +458,7 @@ class UpscaleCropUniversal:
         return {
             "required": {
                 "target_mode": (TARGET_MODES, {"default": "scale_factor",
-                                               "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. The last two both take a target_width x target_height box and scale until it is covered: 'width_height' then crops to it for you, so you always get exactly those dimensions; 'custom' stops there and leaves the framing to the crop block, the way the JPS nodes split sizing from cropping. All of them work downwards as well as up."}),
+                                               "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. The last two take a target_width x target_height box: 'width_height' always gives you exactly that, cropping for you; 'custom' gives you exactly that when crop is on, or the covered size with the aspect intact when it is off -- the JPS split, where sizing and framing are separate decisions. All of them work downwards as well as up."}),
                 "method": (METHODS, {"default": "model",
                                      "tooltip": "How to resample. 'model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
                 "multiple_of": ("INT", {"default": 8, "min": 1, "max": 512, "step": 1,
@@ -486,7 +486,7 @@ class UpscaleCropUniversal:
                 "crop": ("BOOLEAN", {"default": False,
                                      "tooltip": "Off = pure upscaler. On = cut the format out of the result afterwards."}),
                 "crop_ratio": (RATIO_NAMES, {"default": "4:5",
-                                             "tooltip": "The format to cut. Always takes the largest window of that shape that fits. 'custom' uses the target_width x target_height box above as the shape."}),
+                                             "tooltip": "The format to cut. Always takes the largest window of that shape that fits. 'custom' uses the target_width x target_height box above. Ignored by the width_height and custom target modes -- those already cut to their box, so the size you typed is the size you get."}),
                 "crop_orientation": (ORIENTATIONS, {"default": "auto",
                                                     "tooltip": "Which way round the format sits. 'auto' follows the source, so a portrait frame gets a portrait crop and a landscape one gets landscape -- the right choice for a mixed batch. Force it with portrait or landscape. Ignored for 1:1 and for custom."}),
                 "crop_position": (CROP_POSITIONS, {"default": "center",
@@ -545,8 +545,8 @@ class UpscaleCropUniversal:
                 "Upscale Crop Universal: connect an image, a latent, or both — "
                 "there is nothing to resize.")
 
-        if unique_id is not None and image is not None:
-            _remember(unique_id, image)
+        if unique_id is not None:
+            _remember(unique_id, image, samples)
 
         mult = _as_mult(multiple_of)
         notes = []
@@ -560,10 +560,16 @@ class UpscaleCropUniversal:
         exact_box = None
         if target_mode in BOX_MODES:
             box = (_snap(target_width, mult), _snap(target_height, mult))
+            # In a box mode the numbers you typed ARE the output size, so the
+            # crop cuts to that box and nothing else. Letting crop_ratio pick a
+            # different shape here meant asking for 832x1024 and getting
+            # 832x832 back, with no hint on screen as to why.
+            crop_ratio = "custom"
             if target_mode == "width_height":
                 exact_box = box
                 crop = True
-                crop_ratio = "custom"
+            elif crop:
+                exact_box = box
 
         # ---- image path ------------------------------------------------
         out_image = None
@@ -723,9 +729,28 @@ def _png_b64(arr):
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def _remember(node_id, image):
-    """Keep a small copy of the last input for the preview."""
+def _remember(node_id, image=None, samples=None):
+    """Keep a small copy of the last input for the preview.
+
+    With only a latent connected there is no picture to keep -- a latent is
+    not viewable as RGB without the VAE, which this node has no access to.
+    The dimensions are stored anyway so the preview can still report the
+    numbers instead of claiming there is nothing to show.
+    """
     try:
+        if image is None:
+            if samples is None:
+                return
+            lat = samples["samples"]
+            _LAST_IMAGE[str(node_id)] = {
+                "png": None,
+                "w": int(lat.shape[3]) * 8,
+                "h": int(lat.shape[2]) * 8,
+            }
+            if len(_LAST_IMAGE) > 32:
+                _LAST_IMAGE.pop(next(iter(_LAST_IMAGE)))
+            return
+
         x = image[:1].movedim(-1, 1).float()
         h, w = int(x.shape[-2]), int(x.shape[-1])
         edge = max(h, w)
@@ -794,10 +819,11 @@ def _preview(data, cached):
     }
 
     if bool(data.get("crop")) or exact_box:
-        ratio = "custom" if exact_box else txt("crop_ratio", "4:5", RATIO_NAMES)
+        # a box mode always cuts to its box, whatever crop_ratio says
+        ratio = "custom" if (exact_box or box) else txt("crop_ratio", "4:5", RATIO_NAMES)
         orient = txt("crop_orientation", "auto", ORIENTATIONS)
         pos = txt("crop_position", "center", CROP_POSITIONS)
-        box = exact_box or (num("target_width", 1920), num("target_height", 1080))
+        box = box or (num("target_width", 1920), num("target_height", 1080))
         rect = _crop_rect(up_w, up_h, ratio, orient, box[0], box[1],
                           pos, num("crop_offset_x", 0), num("crop_offset_y", 0),
                           int(num("crop_seed", 0)))
@@ -827,7 +853,7 @@ try:
         if cached is None:
             return web.json_response(
                 {"ok": False,
-                 "message": "No image yet — run the graph once, then adjust."})
+                 "message": "Nothing cached yet — run the graph once, then adjust."})
         try:
             return web.json_response(_preview(data, cached))
         except Exception as exc:

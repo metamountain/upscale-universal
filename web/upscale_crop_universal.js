@@ -137,7 +137,7 @@ function companions(node, name) {
     if (i < 0) return [list[i]].filter(Boolean);
     const out = [list[i]];
     for (let j = i + 1; j < list.length; j++) {
-        if (/control.*(generate|after|before)/i.test(list[j].name || "")) {
+        if (/control/i.test(list[j].name || "")) {
             out.push(list[j]);
         } else {
             break;
@@ -179,7 +179,7 @@ function updateVisibility(node) {
     // one size field, whichever the mode is named after
     for (const name of SIZE_WIDGETS) setVisible(node, name, name === mode);
     // one box serves both the box modes and a custom-shaped crop
-    const customCrop = cropOn && !autoCrops && ratio === "custom";
+    const customCrop = cropOn && !box && ratio === "custom";
     for (const name of BOX_WIDGETS) setVisible(node, name, box || customCrop);
 
     // the model picker only exists for method = model
@@ -190,7 +190,8 @@ function updateVisibility(node) {
     // just the framing controls stay, since those still decide what survives
     const framing = autoCrops || cropOn;
     setVisible(node, "crop", !autoCrops);
-    setVisible(node, "crop_ratio", cropOn && !autoCrops);
+    // A box mode cuts to its box, so a shape picker here would only fight it
+    setVisible(node, "crop_ratio", cropOn && !box);
     setVisible(node, "crop_position", framing);
     setVisible(node, "crop_offset_x", framing);
     setVisible(node, "crop_offset_y", framing);
@@ -199,7 +200,7 @@ function updateVisibility(node) {
     // custom takes the box above; a named format takes an orientation
     // instead, and a square has no orientation to take
     setVisible(node, "crop_orientation",
-               cropOn && !autoCrops && ratio !== "custom" && ratio !== "1:1");
+               cropOn && !box && ratio !== "custom" && ratio !== "1:1");
 
     const size = node.computeSize();
     node.setSize([Math.max(node.size[0], size[0]), size[1]]);
@@ -218,6 +219,8 @@ app.registerExtension({
             repairCombos(this);
             repairOptionals(this);
             updateVisibility(this);
+            const self = this;
+            setTimeout(() => updateVisibility(self), 0);
         };
 
         const onCreated = nodeType.prototype.onNodeCreated;
@@ -243,6 +246,10 @@ app.registerExtension({
 
             buildPreview(this);
             updateVisibility(this);
+            // ComfyUI appends a seed's control widget after this hook has
+            // run, so one pass here cannot see it. Catch it on the next tick.
+            const self = this;
+            setTimeout(() => updateVisibility(self), 0);
         };
     },
 });
@@ -320,8 +327,50 @@ function buildPreview(node) {
     let abort = null;
     let last = null;          // the last preview payload, for the drag maths
 
+    // The whole readout in one place, so the picture-less path can use it too.
+    function describe(d) {
+        const [uw, uh] = d.up;
+        const bits = [
+            d.src[0] + "\u00d7" + d.src[1] + " \u2192 " + uw + "\u00d7" + uh,
+            d.method,
+            "\u00d7" + d.factor,
+        ];
+        if (d.multiple_of >= 1) bits.push("/" + Math.round(d.multiple_of));
+        if (d.crop) {
+            const shape = (d.ratio === "custom" || d.ratio === "1:1")
+                ? d.ratio : d.ratio + " " + d.orientation;
+            bits.push(shape + " " + d.position +
+                      " \u2192 " + d.crop[0] + "\u00d7" + d.crop[1]);
+
+            // The box you typed and the crop you get are two numbers, and a
+            // named ratio reshapes the first into the second. Say so rather
+            // than leaving it looking like a bug.
+            const boxW = widget(node, "target_width")?.value;
+            const boxH = widget(node, "target_height")?.value;
+            const usesBox = d.ratio === "custom" ||
+                            widget(node, "target_mode")?.value === "width_height";
+            if (!usesBox && boxW && boxH && (d.crop[0] !== boxW || d.crop[1] !== boxH)) {
+                bits.push("crop_ratio " + d.ratio + " reshapes the box \u2014 " +
+                          "set crop_ratio to custom for " + boxW + "\u00d7" + boxH);
+            }
+            if (d.png) bits.push("drag to place");
+        }
+        return bits.join(" | ");
+    }
+
     function draw(d) {
         last = d;
+
+        // A latent-only run has no picture to draw -- a latent is not viewable
+        // without the VAE, which this node has no access to. The numbers are
+        // the useful part anyway, so they are shown on their own rather than
+        // pretending there is nothing to report.
+        if (!d.png) {
+            stage.style.display = "none";
+            status.textContent = describe(d) + " | connect an image for a picture";
+            return;
+        }
+        stage.style.display = "block";
         img.src = "data:image/png;base64," + d.png;
 
         // fit the real dimensions into the panel, capped both ways, so a
@@ -331,7 +380,6 @@ function buildPreview(node) {
         const fit = Math.min(maxW / uw, PREVIEW_MAX_H / uh);
         stage.style.width = Math.max(24, Math.round(uw * fit)) + "px";
         stage.style.height = Math.max(24, Math.round(uh * fit)) + "px";
-        stage.style.display = "block";
 
         upSize.textContent = uw + "\u00d7" + uh;
 
@@ -347,29 +395,7 @@ function buildPreview(node) {
             window_.style.display = "none";
         }
 
-        const bits = [
-            d.src[0] + "×" + d.src[1] + " → " + uw + "×" + uh,
-            d.method,
-            "×" + d.factor,
-        ];
-        if (d.multiple_of >= 1) bits.push("/" + Math.round(d.multiple_of));
-        if (d.crop) {
-            let shape = d.ratio === "custom" || d.ratio === "1:1"
-                ? d.ratio : d.ratio + " " + d.orientation;
-            bits.push(shape + " " + d.position + " → " + d.crop[0] + "×" + d.crop[1]);
-        }
-        if (d.crop) {
-            const boxW = widget(node, "target_width")?.value;
-            const boxH = widget(node, "target_height")?.value;
-            const usesBox = d.ratio === "custom" ||
-                            widget(node, "target_mode")?.value === "width_height";
-            if (!usesBox && boxW && boxH && (d.crop[0] !== boxW || d.crop[1] !== boxH)) {
-                bits.push("crop_ratio " + d.ratio + " reshapes the box \u2014 " +
-                          "set crop_ratio to custom for " + boxW + "\u00d7" + boxH);
-            }
-            bits.push("drag to place");
-        }
-        status.textContent = bits.join(" | ");
+        status.textContent = describe(d);
     }
 
     // ---- drag the window ------------------------------------------------

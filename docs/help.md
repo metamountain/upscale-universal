@@ -102,9 +102,13 @@ after the other.
 | | `width_height` | `custom` |
 |---|---|---|
 | scales to cover the box | yes | yes |
-| crops to the box | **automatically** | **you decide** |
-| crop block visible | folded away | fully available |
-| result | exactly W×H | covers W×H, aspect intact |
+| crops to the box | **automatically** | **only if `crop` is on** |
+| result | exactly W×H | exactly W×H, or the covered size with crop off |
+
+**In both, the numbers you type are the output size.** `crop_ratio` is hidden in
+these modes: a shape picker could only argue with the box you just typed, which is
+how asking for 832×1024 used to hand back 832×832. `crop_position` and the offsets
+stay, because those decide *which part* of the image fills the box — not its size.
 
 ### `method`
 
@@ -338,7 +342,7 @@ Two things it deliberately does not do:
 python tests/run_tests.py
 ```
 
-65 tests, no pytest needed — the portable ComfyUI python does not ship it. They
+66 tests, no pytest needed — the portable ComfyUI python does not ship it. They
 run against a stubbed `folder_paths` and never touch a real model, so they work
 anywhere torch does.
 

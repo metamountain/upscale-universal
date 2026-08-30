@@ -197,13 +197,31 @@ def test_custom_lets_you_do_the_crop_yourself():
     assert (int(r[0].shape[2]), int(r[0].shape[1])) == (1920, 1080)
 
 
-def test_custom_with_a_named_format_crops_to_that_instead():
-    """The box sized it; a named ratio then frames it however you like."""
+def test_a_box_mode_ignores_crop_ratio():
+    """In a box mode the numbers you typed ARE the output size.
+
+    Letting crop_ratio pick a different shape here meant asking for 832x1024
+    and getting 832x832 back. The box wins; crop_ratio is hidden in these
+    modes precisely so it cannot argue with it.
+    """
+    for mode in ("custom", "width_height"):
+        for ratio in ("1:1", "16:9", "4:5", "custom"):
+            r = run(mod, image=image(1024, 1536), method="lanczos",
+                    target_mode=mode, target_width=1920, target_height=1080,
+                    multiple_of=1, crop=True, crop_ratio=ratio)
+            got = (int(r[0].shape[2]), int(r[0].shape[1]))
+            assert got == (1920, 1080), (mode, ratio, got)
+
+
+def test_custom_without_crop_keeps_the_covered_size():
+    """Crop off is the one way a box mode gives you something else -- the
+    covered size, aspect intact, which is what "the crop is yours" means."""
     r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of=1,
-            crop=True, crop_ratio="1:1")
+            target_width=1920, target_height=1080, multiple_of=1, crop=False)
     w, h = int(r[0].shape[2]), int(r[0].shape[1])
-    assert w == h, (w, h)
+    assert (w, h) != (1920, 1080)
+    assert w >= 1920 and h >= 1080, (w, h)
+    assert abs(w / h - 1024 / 1536) < 0.01, "aspect must survive"
 
 
 def test_custom_obeys_multiple_of():

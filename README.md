@@ -96,10 +96,14 @@ It brings its own crop along and folds the crop block away — two crops arguing
 one result would be nobody's idea of clear.
 
 **`custom` is the same box with the crop left to you** — the JPS split, where sizing
-and framing are separate decisions. It scales until the box is covered and stops
-there, so you switch the crop block on and frame it however you like, or leave it off
-and keep the covered size. Same widgets (`target_width` / `target_height`), same
-arithmetic; the two part ways only at the crop.
+and framing are separate decisions. Crop on gives you exactly the box, and
+`crop_position` plus the offsets decide which part of the image fills it. Crop off
+leaves the covered size with the aspect intact. Same widgets, same arithmetic; the
+two modes part ways only over whether the crop is automatic.
+
+**In both box modes the numbers you type are the output size.** `crop_ratio` is
+hidden there — a shape picker could only argue with the box, which is how asking
+for 832×1024 used to hand back 832×832.
 
 Neither is the same as `crop_ratio = custom`, which only cuts a window out of whatever
 the upscale happened to produce and clamps per axis when that was too small — ask both
@@ -210,6 +214,6 @@ ComfyUI itself (`spandrel`, used to load upscale models, already ships with it).
 python tests/run_tests.py
 ```
 
-65 tests, no pytest needed — the portable ComfyUI python does not have it. They run
+66 tests, no pytest needed — the portable ComfyUI python does not have it. They run
 against a stubbed `folder_paths` and never touch a real model, so they work anywhere
 torch does.
