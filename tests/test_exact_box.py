@@ -1,9 +1,11 @@
-"""target_mode = width_height, and the two crop controls it changed.
+"""target_mode = custom, the box mode, and the crop controls around it.
 
-This is the mode that cannot preserve the aspect ratio, so it scales to cover
-the box and cuts the box out -- the crop comes along whether you asked for it
-or not. It is NOT the same as crop_ratio = custom, which cuts a window out of
-whatever the upscale happened to produce and clamps if that was too small.
+It is the one mode that cannot preserve the aspect ratio: it scales until the
+target_width x target_height box is covered, then crops to it, so the
+resolution you type is the resolution you get. The crop is not optional here.
+
+That is NOT the same as crop_ratio = custom, which never rescales -- it only
+cuts the largest window of that shape out of whatever is already there.
 """
 
 from helpers import load_node, image, latent, run
@@ -14,7 +16,7 @@ XFAIL = set()
 
 def _box(w, h, src=(1024, 1536), **kw):
     kw.setdefault("method", "lanczos")
-    r = run(mod, image=image(*src), target_mode="width_height",
+    r = run(mod, image=image(*src), target_mode="custom",
             target_width=w, target_height=h, **kw)
     return int(r[0].shape[2]), int(r[0].shape[1]), r[4]
 
@@ -80,10 +82,10 @@ def test_it_overrides_the_manual_crop_rather_than_stacking():
 def test_it_is_not_the_same_as_custom_crop():
     """The distinction worth being clear about.
 
-    width_height scales the image to cover the box, so it lands on those exact
-    dimensions. A custom crop never rescales -- it cuts the largest window of
-    the shape you asked for out of what is already there. Both keep the shape;
-    only width_height guarantees the size.
+    target_mode custom scales the image to cover the box, so it lands on those
+    exact dimensions. crop_ratio custom never rescales -- it cuts the largest
+    window of the shape you asked for out of what is already there. Both keep
+    the shape; only the target mode guarantees the size.
     """
     assert _box(3000, 3000, src=(1024, 1536))[:2] == (3000, 3000)
 
@@ -99,7 +101,7 @@ def test_latent_lands_on_the_box_in_latent_cells():
     """The box is given in image pixels, so the latent has to divide it by 8
     -- otherwise it would overshoot eightfold."""
     r = run(mod, samples=latent(128, 192), method="bicubic",
-            target_mode="width_height", target_width=1920, target_height=1080,
+            target_mode="custom", target_width=1920, target_height=1080,
             multiple_of=1)
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert (lw, lh) == (240, 135), (lw, lh)
@@ -107,7 +109,7 @@ def test_latent_lands_on_the_box_in_latent_cells():
 
 def test_image_and_latent_agree_on_the_box():
     r = run(mod, image=image(1024, 1536), samples=latent(128, 192),
-            method="lanczos", target_mode="width_height",
+            method="lanczos", target_mode="custom",
             target_width=1920, target_height=1080, multiple_of=1)
     iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
@@ -163,38 +165,15 @@ def test_auto_beats_a_fixed_orientation_on_a_mixed_batch():
 
 # ---- custom box mode, and the random anchor -------------------------------
 
-def test_custom_covers_the_box_without_cropping_it():
-    """The JPS split: custom sizes, you frame. So the result covers the box
-    but is not cut down to it -- that is what width_height is for."""
-    r = run(mod, image=image(1024, 1536), method="lanczos",
-            target_mode="custom", target_width=1920, target_height=1080,
-            multiple_of=1)
-    w, h = int(r[0].shape[2]), int(r[0].shape[1])
-    assert w >= 1920 and h >= 1080, (w, h)
-    assert (w, h) != (1920, 1080), "custom must not crop by itself"
-    assert abs(w / h - 1024 / 1536) < 0.01, "aspect must survive"
-
-
-def test_custom_and_width_height_scale_the_same():
-    """Same box, same cover arithmetic -- they part ways only at the crop."""
-    a = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of=1)
-    b = run(mod, image=image(1024, 1536), method="lanczos",
-            target_mode="width_height", target_width=1920, target_height=1080,
-            multiple_of=1)
-    aw = int(a[0].shape[2])
-    assert aw == 1920, aw               # covered on the constraining axis
-    assert int(b[0].shape[2]) == 1920 and int(b[0].shape[1]) == 1080
-
-
-def test_custom_lets_you_do_the_crop_yourself():
-    """One box serves both stages: custom covers it, then the crop cuts the
-    same box out -- so switching the crop on gets you to exactly the size
-    width_height would have given, but by your own decision."""
-    r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of=1,
-            crop=True, crop_ratio="custom")
-    assert (int(r[0].shape[2]), int(r[0].shape[1])) == (1920, 1080)
+def test_custom_always_crops_to_the_box():
+    """Typing a resolution and not getting it back would be no use, so the
+    crop is not optional here -- the crop toggle is ignored and hidden."""
+    for crop in (True, False):
+        r = run(mod, image=image(1024, 1536), method="lanczos",
+                target_mode="custom", target_width=1920, target_height=1080,
+                multiple_of=1, crop=crop)
+        got = (int(r[0].shape[2]), int(r[0].shape[1]))
+        assert got == (1920, 1080), (crop, got)
 
 
 def test_a_box_mode_ignores_crop_ratio():
@@ -204,24 +183,13 @@ def test_a_box_mode_ignores_crop_ratio():
     and getting 832x832 back. The box wins; crop_ratio is hidden in these
     modes precisely so it cannot argue with it.
     """
-    for mode in ("custom", "width_height"):
+    for mode in ("custom",):
         for ratio in ("1:1", "16:9", "4:5", "custom"):
             r = run(mod, image=image(1024, 1536), method="lanczos",
                     target_mode=mode, target_width=1920, target_height=1080,
                     multiple_of=1, crop=True, crop_ratio=ratio)
             got = (int(r[0].shape[2]), int(r[0].shape[1]))
             assert got == (1920, 1080), (mode, ratio, got)
-
-
-def test_custom_without_crop_keeps_the_covered_size():
-    """Crop off is the one way a box mode gives you something else -- the
-    covered size, aspect intact, which is what "the crop is yours" means."""
-    r = run(mod, image=image(1024, 1536), method="lanczos", target_mode="custom",
-            target_width=1920, target_height=1080, multiple_of=1, crop=False)
-    w, h = int(r[0].shape[2]), int(r[0].shape[1])
-    assert (w, h) != (1920, 1080)
-    assert w >= 1920 and h >= 1080, (w, h)
-    assert abs(w / h - 1024 / 1536) < 0.01, "aspect must survive"
 
 
 def test_custom_obeys_multiple_of():
@@ -280,7 +248,6 @@ def test_random_frames_image_and_latent_alike():
     iw, ih = int(r[0].shape[2]), int(r[0].shape[1])
     lw, lh = int(r[1]["samples"].shape[3]), int(r[1]["samples"].shape[2])
     assert abs(iw / ih - lw / lh) < 0.05, (iw, ih, lw, lh)
-
 
 
 def test_a_custom_box_too_big_keeps_its_shape():

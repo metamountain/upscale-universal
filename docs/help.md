@@ -30,7 +30,7 @@ apply are drawn:
 | `target_mode` | the one matching size field; the other four hide |
 | `method` → `model` | `upscale_model` appears |
 | `method` → anything else | `upscale_model` hides |
-| `target_mode` → `width_height` | `target_width` / `target_height` appear, and the crop block folds away — this mode crops by itself |
+| `target_mode` → `custom` | `target_width` / `target_height` appear; `crop` and `crop_ratio` fold away — this mode always crops to its box |
 | `crop` → on | the whole crop block appears |
 | `crop_ratio` → `custom` | `target_width` / `target_height` replace `crop_orientation` |
 | `crop_position` → `random` | `crop_seed` appears |
@@ -57,8 +57,7 @@ current size downscales, and that is a supported use, not a mistake.
 | `shortest_side` | `min(w, h)` | a model needs a minimum edge |
 | `longest_side` | `max(w, h)` | fitting a print, a screen, an upload limit |
 | `megapixels` | total pixel count | staying inside a VRAM or filesize budget |
-| `width_height` | **an exact box**, cropped for you | the output size is not negotiable |
-| `custom` | the same box, **crop is yours** | you want to frame it yourself |
+| `custom` | **an exact box** | the output resolution is not negotiable |
 
 The first five keep the aspect ratio and cannot distort the image.
 
@@ -67,48 +66,28 @@ produce identical output. Both exist because which one feels natural depends on
 what you are doing, and translating in your head is a small tax you should not
 have to pay.
 
-### `width_height` — the exception
+### `custom` — the exception
 
 The only mode that cannot preserve the aspect ratio, and the one to reach for when
-the output size is fixed by something outside your control — a platform, a print,
-a template.
+the output resolution is fixed by something outside your control — a platform, a
+print, a template.
 
-It scales until the box is **covered** on both axes, then crops to it. Covering
-rather than fitting, because a fit would leave bars and this node never pads. So a
-1024×1536 portrait asked for 1920×1080 scales by width to 1920×2880, then the crop
-takes the middle 1080 rows.
+It scales until the `target_width` × `target_height` box is **covered** on both
+axes, then crops to it. Covering rather than fitting, because a fit would leave bars
+and this node never pads. So a 1024×1536 portrait asked for 1920×1080 scales by width
+to 1920×2880, then the crop takes the middle 1080 rows.
 
-Because it always crops, it brings its own: the crop block folds away and only
-`crop_position` and the two offsets stay, since those still decide which part
-survives. Your `crop` settings are overridden rather than combined — two crops
-arguing over one result would be nobody's idea of clear.
+**The crop is not optional here.** Typing a resolution and not getting it back would
+be no use, so the `crop` toggle and `crop_ratio` are both ignored and hidden in this
+mode — a shape picker could only argue with the box you just typed, which is how
+asking for 832×1024 used to hand back 832×832. `crop_position` and the two offsets
+stay, because those decide *which part* of the image fills the box rather than
+changing its size.
 
-**This is not `crop_ratio = custom`.** That one cuts a window out of whatever the
-upscale happened to produce, and clamps *per axis* when the image was too small —
-which does not even keep the shape you asked for. Ask both for 3000×3000 from a
-1024×1536 source: `width_height` gives you a 3000×3000 square, `custom` gives you
-the whole 1024×1536 frame.
-
-### `custom` — the same box, your crop
-
-Takes the same `target_width` × `target_height` box as `width_height` and covers it
-with exactly the same arithmetic. Then it **stops**.
-
-Nothing is cropped for you: the crop block stays fully available and you frame it
-yourself, or leave the crop off and keep the covered size. This is the JPS split,
-where choosing a size and choosing what survives are two separate decisions made one
-after the other.
-
-| | `width_height` | `custom` |
-|---|---|---|
-| scales to cover the box | yes | yes |
-| crops to the box | **automatically** | **only if `crop` is on** |
-| result | exactly W×H | exactly W×H, or the covered size with crop off |
-
-**In both, the numbers you type are the output size.** `crop_ratio` is hidden in
-these modes: a shape picker could only argue with the box you just typed, which is
-how asking for 832×1024 used to hand back 832×832. `crop_position` and the offsets
-stay, because those decide *which part* of the image fills the box — not its size.
+**This is not `crop_ratio = custom`.** That one never rescales — it cuts the largest
+window of the shape you asked for out of whatever the upscale produced. Ask both for
+3000×3000 from a 1024×1536 source: the target mode gives you a 3000×3000 square, the
+crop ratio gives you the biggest square already available, 1024×1024.
 
 ### `method`
 
@@ -208,7 +187,7 @@ switch thrown.
 ### The box: `target_width` / `target_height`
 
 One pair of widgets, shared by everything that needs a width × height: the
-`width_height` and `custom` target modes, and `crop_ratio = custom`. Two separate
+`custom` target mode and `crop_ratio = custom`. Two separate
 pairs would only invite the question of which one you were meant to set.
 
 Still subject to `multiple_of`, so asking for `900` with `multiple_of 8` gives you
@@ -342,7 +321,7 @@ Two things it deliberately does not do:
 python tests/run_tests.py
 ```
 
-66 tests, no pytest needed — the portable ComfyUI python does not ship it. They
+63 tests, no pytest needed — the portable ComfyUI python does not ship it. They
 run against a stubbed `folder_paths` and never touch a real model, so they work
 anywhere torch does.
 

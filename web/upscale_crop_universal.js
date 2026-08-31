@@ -18,10 +18,11 @@ import { api } from "../../scripts/api.js";
 const NODE = "UpscaleCropUniversal";
 
 const TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
-                      "longest_side", "megapixels", "width_height", "custom"];
-// Both take the target_width x target_height box; only width_height crops to
-// it for you, so only that one folds the crop block away.
-const BOX_MODES = ["width_height", "custom"];
+                      "longest_side", "megapixels", "custom"];
+// 'custom' takes the target_width x target_height box and always crops to it
+// -- typing a resolution and not getting it back would be no use to anyone --
+// so the crop toggle and the shape picker both fold away there.
+const BOX_MODES = ["custom"];
 const METHODS = ["model", "lanczos", "bicubic", "bilinear", "nearest", "area"];
 const RATIOS = ["custom", "4:5", "1:1", "4:3", "3:2", "DIN", "16:10", "16:9", "2:1", "21:9"];
 const ORIENTATIONS = ["auto", "portrait", "landscape"];
@@ -174,7 +175,7 @@ function updateVisibility(node) {
     const position = widget(node, "crop_position")?.value;
 
     const box = BOX_MODES.includes(mode);
-    const autoCrops = mode === "width_height";
+    const autoCrops = box;
 
     // one size field, whichever the mode is named after
     for (const name of SIZE_WIDGETS) setVisible(node, name, name === mode);
@@ -185,8 +186,8 @@ function updateVisibility(node) {
     // the model picker only exists for method = model
     setVisible(node, "upscale_model", method === "model");
 
-    // width_height already crops to its box, so the crop block would only
-    // be a second crop arguing with the first -- it folds away entirely and
+    // A box mode always crops to its box, so the toggle and the shape picker
+    // would only be a second crop arguing with the first. They fold away and
     // just the framing controls stay, since those still decide what survives
     const framing = autoCrops || cropOn;
     setVisible(node, "crop", !autoCrops);
@@ -348,7 +349,7 @@ function buildPreview(node) {
             const boxW = widget(node, "target_width")?.value;
             const boxH = widget(node, "target_height")?.value;
             const usesBox = d.ratio === "custom" ||
-                            widget(node, "target_mode")?.value === "width_height";
+                            BOX_MODES.includes(widget(node, "target_mode")?.value);
             if (!usesBox && boxW && boxH && (d.crop[0] !== boxW || d.crop[1] !== boxH)) {
                 bits.push("crop_ratio " + d.ratio + " reshapes the box \u2014 " +
                           "set crop_ratio to custom for " + boxW + "\u00d7" + boxH);

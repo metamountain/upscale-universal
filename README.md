@@ -2,7 +2,7 @@
 
 **Upscale and crop in one ComfyUI node — with the upscale model built in.**
 
-Seven ways to ask for a size, all of them working downwards as well as up. Then,
+Six ways to ask for a size, all of them working downwards as well as up. Then,
 optionally, a crop stage that cuts the exact format out of the result — drag the
 window in the live preview to place it. The upscale model is picked by a widget straight from your
 `models/upscale_models` folder, so there is no Load Upscale Model node to wire up.
@@ -66,7 +66,7 @@ image ──────►│ percent · factor · shortest   │─►│ 4:5 
 latent ─────►│ longest · megapixels          │  │ DIN 16:9 …    │──► latent
              │ aspect always preserved       │  │ off by default│──► width/height/info
              ├───────────────────────────────┴──┴───────────────┤
-             │ width_height — an exact box, covered then cropped │
+             │ custom — an exact box, covered then cropped to it │
              └──────────────────────────────────────────────────┘
 ```
 
@@ -82,32 +82,25 @@ out of it, and only ever cuts — nothing is resampled a second time.
 | `shortest_side` | `min(w, h)` | feeding a model with a minimum edge |
 | `longest_side` | `max(w, h)` | fitting a print or a screen |
 | `megapixels` | total pixel count | staying inside a VRAM or upload budget |
-| `width_height` | **an exact box**, cropped for you | the output size is non-negotiable |
-| `custom` | the same box, **crop is yours** | you want to frame it yourself |
+| `custom` | **an exact box** | the output resolution is non-negotiable |
 
 Percent and factor are the same arithmetic, offered both ways because which one
 feels natural depends on the task. Every mode downscales when you give it a value
 below the current size — set `scale_factor` to 0.5 and this is your downscaler.
 
-The first five keep the aspect ratio. **`width_height` is the exception**, and the
-one to reach for when the output size is not negotiable: it scales until the box is
-covered, then crops to it, so you get exactly those dimensions from any source shape.
-It brings its own crop along and folds the crop block away — two crops arguing over
-one result would be nobody's idea of clear.
+The first five keep the aspect ratio. **`custom` is the exception**, and the one to
+reach for when the output resolution is not negotiable: it scales until the
+`target_width` × `target_height` box is covered, then crops to it, so you get exactly
+those dimensions from any source shape.
 
-**`custom` is the same box with the crop left to you** — the JPS split, where sizing
-and framing are separate decisions. Crop on gives you exactly the box, and
-`crop_position` plus the offsets decide which part of the image fills it. Crop off
-leaves the covered size with the aspect intact. Same widgets, same arithmetic; the
-two modes part ways only over whether the crop is automatic.
+**The numbers you type are the output size.** The crop is not optional there and
+`crop_ratio` is hidden — typing a resolution and not getting it back would be no use,
+and a shape picker could only argue with the box. `crop_position` and the offsets
+stay, because those decide *which part* of the image fills the box, not its size.
 
-**In both box modes the numbers you type are the output size.** `crop_ratio` is
-hidden there — a shape picker could only argue with the box, which is how asking
-for 832×1024 used to hand back 832×832.
-
-Neither is the same as `crop_ratio = custom`, which only cuts a window out of whatever
-the upscale happened to produce and clamps per axis when that was too small — ask both
-for a 3000×3000 square from a portrait source and only `width_height` gives you a
+That is not the same as `crop_ratio = custom`, which never rescales — it only cuts the
+largest window of that shape out of whatever the upscale produced. Ask both for
+3000×3000 from a portrait source and only the target mode gives you a 3000×3000
 square.
 
 `multiple_of` snaps the result so it survives a VAE. Type any number — **8** suits
@@ -214,6 +207,6 @@ ComfyUI itself (`spandrel`, used to load upscale models, already ships with it).
 python tests/run_tests.py
 ```
 
-66 tests, no pytest needed — the portable ComfyUI python does not have it. They run
+63 tests, no pytest needed — the portable ComfyUI python does not have it. They run
 against a stubbed `folder_paths` and never touch a real model, so they work anywhere
 torch does.

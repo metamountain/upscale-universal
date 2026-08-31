@@ -55,13 +55,17 @@ def _device():
 # ---------------------------------------------------------------- sizing
 
 TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
-                "longest_side", "megapixels", "width_height", "custom"]
+                "longest_side", "megapixels", "custom"]
 
-# The two box modes share target_width/target_height and the same cover
-# arithmetic. They differ in one thing only: width_height crops to the box for
-# you, custom leaves the crop entirely yours -- the JPS way, where sizing and
-# framing are separate decisions you make one after the other.
-BOX_MODES = ("width_height", "custom")
+# 'custom' takes a target_width x target_height box and gives you exactly
+# that: it scales until the box is covered, then crops to it. The crop is not
+# optional here, because the whole point of typing a resolution is getting
+# that resolution out.
+#
+# There used to be a second box mode, width_height, which differed only in
+# cropping automatically. Once custom did that too they were the same thing
+# under two names, so there is one.
+BOX_MODES = ("custom",)
 
 def _as_mult(v):
     """multiple_of as a plain float, however it arrives.
@@ -170,9 +174,9 @@ def _scale_for(w, h, mode, percent, factor, shortest, longest, megapixels,
     if mode == "megapixels":
         return (megapixels * 1e6 / max(1, w * h)) ** 0.5
     if mode in BOX_MODES:
-        # Cover: scale until the box is filled on both axes. width_height then
-        # crops to it automatically; custom hands that decision to you. Fitting
-        # inside instead would leave bars, and this node never pads.
+        # Cover: scale until the box is filled on both axes, then the crop
+        # that always follows cuts it to size. Fitting inside instead would
+        # leave bars, and this node never pads.
         return max(box_w / max(1, w), box_h / max(1, h))
     return 1.0
 
@@ -397,11 +401,10 @@ class UpscaleCropUniversal:
         "Upscale and crop in one node. UPSCALE sets the size -- ask for it as a "
         "percent, a factor, a shortest or longest side, or a megapixel count, "
         "whichever is natural for what you are doing. Those five keep the aspect "
-        "ratio. The last two take a width x height box instead: 'width_height' "
-        "covers it and crops to it, so you always get exactly those dimensions, "
-        "while 'custom' covers it and stops -- framing is then yours to set in "
-        "the crop block, the way the JPS nodes keep sizing and cropping apart. "
-        "Every mode works downwards too, so this is also your downscaler.\n\n"
+        "ratio. 'custom' takes a width x height box instead and gives you exactly "
+        "that: it covers the box and crops to it, so the resolution you type is "
+        "the resolution that comes out. Every mode works downwards too, so this "
+        "is also your downscaler.\n\n"
         "CROP is off by default and only ever cuts, never rescales, so nothing is "
         "resampled twice. Switch it on and pick a classic format -- 4:5, 1:1, 3:2, "
         "DIN, 16:9 and the rest -- with crop_orientation deciding which way round "
@@ -458,7 +461,7 @@ class UpscaleCropUniversal:
         return {
             "required": {
                 "target_mode": (TARGET_MODES, {"default": "scale_factor",
-                                               "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. The last two take a target_width x target_height box: 'width_height' always gives you exactly that, cropping for you; 'custom' gives you exactly that when crop is on, or the covered size with the aspect intact when it is off -- the JPS split, where sizing and framing are separate decisions. All of them work downwards as well as up."}),
+                                               "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. 'custom' takes a target_width x target_height box and gives you exactly that -- it covers the box and crops to it, so the resolution you type is the resolution you get. All of them work downwards as well as up."}),
                 "method": (METHODS, {"default": "model",
                                      "tooltip": "How to resample. 'model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
                 "multiple_of": ("INT", {"default": 8, "min": 1, "max": 512, "step": 1,
@@ -480,13 +483,13 @@ class UpscaleCropUniversal:
                 "megapixels": ("FLOAT", {"default": 2.0, "min": 0.05, "max": 64.0, "step": 0.05,
                                          "tooltip": "Used by target_mode megapixels. Pins the total pixel count; the shape is unchanged."}),
                 "target_width": ("INT", {"default": 1920, "min": 16, "max": 16384, "step": 8,
-                                         "tooltip": "Width of the box. Used by target_mode width_height (which gives you exactly this) and custom (which covers it and leaves the crop to you), and by crop_ratio 'custom' as the shape to cut."}),
+                                         "tooltip": "Width of the box. target_mode 'custom' gives you exactly this. crop_ratio 'custom' uses it as the shape to cut."}),
                 "target_height": ("INT", {"default": 1080, "min": 16, "max": 16384, "step": 8,
-                                          "tooltip": "Height of the box. Used by target_mode width_height (which gives you exactly this) and custom (which covers it and leaves the crop to you), and by crop_ratio 'custom' as the shape to cut."}),
+                                          "tooltip": "Height of the box. target_mode 'custom' gives you exactly this. crop_ratio 'custom' uses it as the shape to cut."}),
                 "crop": ("BOOLEAN", {"default": False,
-                                     "tooltip": "Off = pure upscaler. On = cut the format out of the result afterwards."}),
+                                     "tooltip": "Off = pure upscaler. On = cut a format out of the result afterwards. Always on for target_mode 'custom', which has to crop to reach the box you typed."}),
                 "crop_ratio": (RATIO_NAMES, {"default": "4:5",
-                                             "tooltip": "The format to cut. Always takes the largest window of that shape that fits. 'custom' uses the target_width x target_height box above. Ignored by the width_height and custom target modes -- those already cut to their box, so the size you typed is the size you get."}),
+                                             "tooltip": "The format to cut. Always takes the largest window of that shape that fits. 'custom' uses the target_width x target_height box above. Ignored by target_mode 'custom' -- that already cuts to its box, so the size you typed is the size you get."}),
                 "crop_orientation": (ORIENTATIONS, {"default": "auto",
                                                     "tooltip": "Which way round the format sits. 'auto' follows the source, so a portrait frame gets a portrait crop and a landscape one gets landscape -- the right choice for a mixed batch. Force it with portrait or landscape. Ignored for 1:1 and for custom."}),
                 "crop_position": (CROP_POSITIONS, {"default": "center",
@@ -552,7 +555,7 @@ class UpscaleCropUniversal:
         notes = []
 
         # Both box modes scale to cover target_width x target_height. Only
-        # width_height then crops to it, overriding the crop settings rather
+        # 'custom' then crops to it, overriding the crop settings rather
         # than combining with them -- two crops fighting over one result would
         # be nobody's idea of clear. 'custom' scales the same way and leaves
         # the crop untouched, so framing stays a separate decision.
@@ -565,11 +568,8 @@ class UpscaleCropUniversal:
             # different shape here meant asking for 832x1024 and getting
             # 832x832 back, with no hint on screen as to why.
             crop_ratio = "custom"
-            if target_mode == "width_height":
-                exact_box = box
-                crop = True
-            elif crop:
-                exact_box = box
+            exact_box = box
+            crop = True
 
         # ---- image path ------------------------------------------------
         out_image = None
@@ -624,7 +624,7 @@ class UpscaleCropUniversal:
             lh, lw = int(lat.shape[2]), int(lat.shape[3])
             # a latent's own multiple_of is in latent cells, not pixels
             lmult = max(1, int(mult) // 8) if mult >= 8 else 1
-            # ...and so is a width_height box, which is given in image pixels
+            # ...and so is the box, which is given in image pixels
             lbox = (max(1, box[0] // 8), max(1, box[1] // 8)) if box else (0, 0)
             k = _scale_for(lw, lh, target_mode, scale_percent, scale_factor,
                            shortest_side, longest_side, megapixels, *lbox)
@@ -643,7 +643,7 @@ class UpscaleCropUniversal:
         if crop:
             if img_dims:
                 ref_w, ref_h = img_dims
-                # width_height hands over its already-snapped box; anything
+                # a box mode hands over its already-snapped box; anything
                 # else passes the raw one and lets _apply_rect snap at the end
                 box_w, box_h = exact_box or (target_width, target_height)
                 off_x, off_y = crop_offset_x, crop_offset_y
@@ -790,8 +790,7 @@ def _preview(data, cached):
     if mode in BOX_MODES:
         box = (_snap(num("target_width", 1920), mult),
                _snap(num("target_height", 1080), mult))
-        if mode == "width_height":
-            exact_box = box
+        exact_box = box
 
     k = _scale_for(src_w, src_h, mode, num("scale_percent", 200.0),
                    num("scale_factor", 2.0), num("shortest_side", 1536),
