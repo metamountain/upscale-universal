@@ -513,7 +513,8 @@ class UpscaleCropUniversal:
     RETURN_TYPES = ("IMAGE", "LATENT", "INT", "INT", "STRING")
     RETURN_NAMES = ("image", "latent", "width", "height", "info")
     FUNCTION = "run"
-    CATEGORY = "image/upscaling"      # next to ComfyUI's own upscale nodes
+    CATEGORY = "MM Nodepack"          # with the other metamountain nodes
+    SEARCH_ALIASES = ["mm", "metamountain", "mm nodepack", "upscale mm", "crop mm"]
 
     def run(self, target_mode="scale_factor", method="upscaler model", multiple_of=8,
             image=None, samples=None, upscale_model=None,

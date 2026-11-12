@@ -12,6 +12,6 @@ UpscaleCropUniversal.DESCRIPTION += (
 WEB_DIRECTORY = "./web"
 
 NODE_CLASS_MAPPINGS = {"UpscaleCropUniversal": UpscaleCropUniversal}
-NODE_DISPLAY_NAME_MAPPINGS = {"UpscaleCropUniversal": "Upscale Crop Universal"}
+NODE_DISPLAY_NAME_MAPPINGS = {"UpscaleCropUniversal": "Upscale Crop Universal MM"}
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
