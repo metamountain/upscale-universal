@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-upscale-crop-universal"
 description = "ComfyUI custom node: upscale and crop in one. Five ways to ask for a size -- percent, factor, shortest side, longest side, megapixels -- all aspect-preserving and all working downwards too, plus a crop stage with the classic formats. The upscale model is picked by a widget, so there is no loader node to wire up."
-version = "1.0.1"
+version = "1.0.2"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = []

@@ -1,4 +1,4 @@
-# Upscale Crop Universal — ComfyUI custom node
+# Upscale Crop Universal MM — ComfyUI custom node
 
 **Upscale and crop in one ComfyUI node — with the upscale model built in.**
 
@@ -9,6 +9,9 @@ window in the live preview to place it. The upscale model is picked by a widget 
 
 Everything runs in torch and handles batches.
 
+In ComfyUI it sits in the **MM Nodepack** category; search for **mm** or
+**upscale crop universal mm**.
+
 ## Why this one
 
 **The whole job is one node.** Getting "upscale with a model, land on an exact
@@ -18,7 +21,7 @@ size, cut it to 4:5" out of stock ComfyUI takes a chain:
 stock ComfyUI     Load Upscale Model ─► Upscale Image (using Model) ─►
                   Upscale Image By ─► Image Crop ─► …and compute the numbers yourself
 
-this node         Upscale Crop Universal
+this node         Upscale Crop Universal MM
 ```
 
 **The model is a widget, not a socket.** Every comparable pack —
@@ -153,7 +156,7 @@ wrong way round for it.
 
 ## The model
 
-`method` defaults to **`model`**, and `upscale_model` lists your
+`method` defaults to **`upscaler model`**, and `upscale_model` lists your
 `models/upscale_models` folder directly. One pass at the model's native scale, then
 a single resize onto the target — so a 4× model asked for a 2× result does not leave
 you with a needlessly huge intermediate. Tiling reuses ComfyUI's own `tiled_scale`
@@ -188,7 +191,7 @@ the sizes, the method actually used, the crop applied, and any fallback that kic
 <img src="docs/node.png" width="330" alt="The node with crop switched on: two blocks, and the crop preview showing what survives">
 
 Only the widgets that currently apply are drawn. Switching `target_mode` swaps the
-size field, `method` reveals or hides the model picker, and `crop` folds the whole
+size field, `method` reveals or hides the model picker, `snap` shows `multiple_of`, and `crop` folds the whole
 second block away — so the node stays about six rows tall however much it can do.
 
 The panel at the bottom is the live crop preview: your own image with the discarded
@@ -206,6 +209,6 @@ ComfyUI itself (`spandrel`, used to load upscale models, already ships with it).
 python tests/run_tests.py
 ```
 
-63 tests, no pytest needed — the portable ComfyUI python does not have it. They run
+64 tests, no pytest needed — the portable ComfyUI python does not have it. They run
 against a stubbed `folder_paths` and never touch a real model, so they work anywhere
 torch does.
