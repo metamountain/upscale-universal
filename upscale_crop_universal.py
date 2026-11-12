@@ -91,7 +91,7 @@ def _as_mult(v):
 
 # Interpolation vocabulary follows ComfyUI core and the JPS crop nodes, so a
 # name means the same thing here as it does everywhere else in a graph.
-METHODS = ["model", "lanczos", "bicubic", "bilinear", "nearest", "area"]
+METHODS = ["upscaler model", "lanczos", "bicubic", "bilinear", "nearest", "area"]
 
 # Classic formats, each written the way people actually say it -- 4:5 is
 # portrait, 16:9 is landscape -- and crop_orientation normalises whichever
@@ -324,7 +324,7 @@ def _resize_latent(lat, tw, th, kernel):
     """B,C,H,W -- no lanczos and no clamping; a latent is not 0..1 pixels."""
     if lat.shape[2] == th and lat.shape[3] == tw:
         return lat
-    mode = _TORCH_MODES.get(kernel, "bicubic")   # 'model' lands here too
+    mode = _TORCH_MODES.get(kernel, "bicubic")   # 'upscaler model' lands here too
     kw = {} if mode in ("nearest-exact", "area") else {"align_corners": False}
     return F.interpolate(lat, size=(th, tw), mode=mode, **kw)
 
@@ -411,7 +411,7 @@ class UpscaleCropUniversal:
         "it sits ('auto' follows the frame, which is what a mixed batch of "
         "portrait and landscape shots needs), and crop_position plus "
         "crop_offset_x / crop_offset_y deciding what survives.\n\n"
-        "THE MODEL IS BUILT IN. method defaults to 'model' and upscale_model picks "
+        "THE MODEL IS BUILT IN. method defaults to 'upscaler model' and upscale_model picks "
         "the file straight from your models/upscale_models folder -- no separate "
         "loader node to wire up. One pass at the model's native scale, then a single "
         "resize onto the target, so a 4x model hitting a 2x target does not leave you "
@@ -425,7 +425,7 @@ class UpscaleCropUniversal:
         "Flux; set it to off only when the image is going straight to disk.\n\n"
         "IF NOTHING SEEMS TO HAPPEN. Only the widgets that currently apply are "
         "shown, so switching target_mode swaps the size field and switching method "
-        "away from 'model' hides the model picker -- a value you set earlier is not "
+        "away from 'upscaler model' hides the model picker -- a value you set earlier is not "
         "gone, just not in use. The info output always names the mode and method "
         "that actually ran."
     )
@@ -462,8 +462,8 @@ class UpscaleCropUniversal:
             "required": {
                 "target_mode": (TARGET_MODES, {"default": "scale_factor",
                                                "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. 'custom' takes a target_width x target_height box and gives you exactly that -- it covers the box and crops to it, so the resolution you type is the resolution you get. All of them work downwards as well as up."}),
-                "method": (METHODS, {"default": "model",
-                                     "tooltip": "How to resample. 'model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
+                "method": (METHODS, {"default": "upscaler model",
+                                     "tooltip": "How to resample. 'upscaler model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
                 "multiple_of": ("INT", {"default": 8, "min": 1, "max": 512, "step": 1,
                                         "tooltip": "Snap the result to a multiple of this, so it survives a VAE. 8 suits SD, SDXL and Flux; 64 for some tiling and video workflows; any number you like. 1 switches it off and gives you the exact size you asked for -- fine when the image goes straight to disk."}),
             },
@@ -471,7 +471,7 @@ class UpscaleCropUniversal:
             "optional": {
                 "image": ("IMAGE", {"tooltip": "Optional. Connect either this, or samples, or both."}),
                 "samples": ("LATENT", {"tooltip": "Optional. Sized from its own dimensions, never from the image's."}),
-                "upscale_model": (models, {"tooltip": "Used when method is 'model'. Read straight from models/upscale_models -- no loader node needed. UltraSharp, Remacri, Siax and RealESRGAN are listed first if you have them, since they are the usual general-purpose picks."}),
+                "upscale_model": (models, {"tooltip": "Used when method is 'upscaler model'. Read straight from models/upscale_models -- no loader node needed. UltraSharp, Remacri, Siax and RealESRGAN are listed first if you have them, since they are the usual general-purpose picks."}),
                 "scale_percent": ("FLOAT", {"default": 200.0, "min": 1.0, "max": 800.0, "step": 5.0,
                                             "tooltip": "Used by target_mode scale_percent. 200 doubles, 50 halves."}),
                 "scale_factor": ("FLOAT", {"default": 2.0, "min": 0.05, "max": 8.0, "step": 0.05,
@@ -513,7 +513,7 @@ class UpscaleCropUniversal:
     FUNCTION = "run"
     CATEGORY = "image/upscaling"      # next to ComfyUI's own upscale nodes
 
-    def run(self, target_mode="scale_factor", method="model", multiple_of=8,
+    def run(self, target_mode="scale_factor", method="upscaler model", multiple_of=8,
             image=None, samples=None, upscale_model=None,
             scale_percent=200.0, scale_factor=2.0, shortest_side=1536,
             longest_side=2048, megapixels=2.0,
@@ -526,7 +526,7 @@ class UpscaleCropUniversal:
         # explicit None instead of omitting it, which otherwise blows up in
         # the float()/int() conversion before this ever runs.
         if target_mode is None: target_mode = "scale_factor"
-        if method is None: method = "model"
+        if method is None: method = "upscaler model"
         if multiple_of is None: multiple_of = 8
         if scale_percent is None: scale_percent = 200.0
         if scale_factor is None: scale_factor = 2.0
@@ -594,7 +594,7 @@ class UpscaleCropUniversal:
 
             kernel = method
             work = image
-            if method == "model":
+            if method == "upscaler model":
                 if k <= 1.0:
                     kernel = "lanczos"
                     notes.append("model skipped, target is a downscale")
@@ -782,7 +782,7 @@ def _preview(data, cached):
         return v if isinstance(v, str) and v in valid else default
 
     mode = txt("target_mode", "scale_factor", TARGET_MODES)
-    method = txt("method", "model", METHODS)
+    method = txt("method", "upscaler model", METHODS)
     mult = _as_mult(data.get("multiple_of", 8))
 
     box = None

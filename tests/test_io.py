@@ -53,13 +53,13 @@ def test_latent_dict_extras_are_carried_through():
 
 
 def test_model_method_falls_back_when_nothing_is_selected():
-    r = run(mod, image=image(256, 384), method="model", scale_factor=2.0)
+    r = run(mod, image=image(256, 384), method="upscaler model", scale_factor=2.0)
     assert tuple(r[0].shape)[1:3] == (768, 512), r[0].shape
     assert "lanczos" in r[4], r[4]
 
 
 def test_model_is_skipped_on_a_downscale():
-    r = run(mod, image=image(1024, 1536), method="model", scale_factor=0.5,
+    r = run(mod, image=image(1024, 1536), method="upscaler model", scale_factor=0.5,
             upscale_model="whatever.pth")
     assert tuple(r[0].shape)[1:3] == (768, 512), r[0].shape
     assert "downscale" in r[4], r[4]

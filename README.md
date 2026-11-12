@@ -26,7 +26,7 @@ this node         Upscale Crop Universal
 [Studio-nodes](https://github.com/comfyuistudio/ComfyUI-Studio-nodes),
 [Deno2026](https://github.com/Deno2026/comfyui-deno-custom-nodes) — does resize and
 crop well, and **none of them upscale with a model at all.** Here `method` defaults
-to `model` and the file comes straight from `models/upscale_models`. No loader node,
+to `upscaler model` and the file comes straight from `models/upscale_models`. No loader node,
 no dangling `UPSCALE_MODEL` wire across your graph.
 
 **It knows when *not* to use the model.** Ask for a downscale and the model is
