@@ -23,7 +23,7 @@ const TARGET_MODES = ["scale_percent", "scale_factor", "shortest_side",
 // -- typing a resolution and not getting it back would be no use to anyone --
 // so the crop toggle and the shape picker both fold away there.
 const BOX_MODES = ["custom"];
-const METHODS = ["model", "lanczos", "bicubic", "bilinear", "nearest", "area"];
+const METHODS = ["upscaler model", "lanczos", "bicubic", "bilinear", "nearest", "area"];
 const RATIOS = ["custom", "4:5", "1:1", "4:3", "3:2", "DIN", "16:10", "16:9", "2:1", "21:9"];
 const ORIENTATIONS = ["auto", "portrait", "landscape"];
 const CROP_POSITIONS = ["center", "top", "bottom", "left", "right", "random"];
@@ -147,7 +147,22 @@ function companions(node, name) {
     return out;
 }
 
+// Every widget also has an input socket, and the frontend places that socket
+// at widget.y. A hidden widget is left out of the layout, so its y -- and its
+// socket -- stay wherever the row was when it was last drawn. The drop
+// hit-test takes the FIRST input whose box contains the cursor, so a stale
+// socket from, say, the hidden scale_factor (FLOAT) wins over the target_width
+// row you aimed at; the type check then rejects it and the frontend falls
+// back to the first free INT on the node, which is multiple_of. Parking the
+// hidden row far above the node takes its socket out of reach.
+const PARKED_Y = -100000;
+
 function setVisible(node, name, visible) {
+    // A wired input stays on show: hiding it would leave a live link pointing
+    // at a socket nobody can see.
+    if (!visible && node.inputs?.some((i) => i.widget?.name === name && i.link != null)) {
+        visible = true;
+    }
     for (const w of companions(node, name)) applyVisible(w, visible);
 }
 
@@ -159,12 +174,15 @@ function applyVisible(w, visible) {
             w.computeSize = w._ucuComputeSize;
             w._ucuType = undefined;
         }
-    } else if (w._ucuType === undefined) {
+        return;
+    }
+    if (w._ucuType === undefined) {
         w._ucuType = w.type;
         w._ucuComputeSize = w.computeSize;
         w.type = "hidden";
         w.computeSize = () => [0, -4];
     }
+    w.y = PARKED_Y;
 }
 
 function updateVisibility(node) {
@@ -184,7 +202,7 @@ function updateVisibility(node) {
     for (const name of BOX_WIDGETS) setVisible(node, name, box || customCrop);
 
     // the model picker only exists for method = model
-    setVisible(node, "upscale_model", method === "model");
+    setVisible(node, "upscale_model", method === "upscaler model");
 
     // A box mode always crops to its box, so the toggle and the shape picker
     // would only be a second crop arguing with the first. They fold away and
@@ -222,6 +240,14 @@ app.registerExtension({
             updateVisibility(this);
             const self = this;
             setTimeout(() => updateVisibility(self), 0);
+        };
+
+        // Wiring or unwiring an input can change what has to stay visible.
+        const onConnections = nodeType.prototype.onConnectionsChanged;
+        nodeType.prototype.onConnectionsChanged = function () {
+            const r = onConnections?.apply(this, arguments);
+            updateVisibility(this);
+            return r;
         };
 
         const onCreated = nodeType.prototype.onNodeCreated;
