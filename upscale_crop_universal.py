@@ -464,6 +464,8 @@ class UpscaleCropUniversal:
                                                "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. 'custom' takes a target_width x target_height box and gives you exactly that -- it covers the box and crops to it, so the resolution you type is the resolution you get. All of them work downwards as well as up."}),
                 "method": (METHODS, {"default": "upscaler model",
                                      "tooltip": "How to resample. 'upscaler model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
+                "snap": ("BOOLEAN", {"default": False, "label_on": "snap to multiple_of", "label_off": "exact size",
+                                     "tooltip": "Off: you get exactly the size you asked for. On: the result is rounded to a multiple of multiple_of (e.g. 8 for SD, SDXL and Flux VAEs). ComfyUI's VAE Encode crops a few pixels itself when a size is not a multiple, so this is optional."}),
                 "multiple_of": ("INT", {"default": 8, "min": 1, "max": 512, "step": 1,
                                         "tooltip": "Used when snap is on: the result is rounded to a multiple of this. 8 suits SD, SDXL and Flux; 64 for some tiling and video workflows."}),
             },
@@ -505,8 +507,6 @@ class UpscaleCropUniversal:
                 "crop_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
                                       "control_after_generate": True,
                                       "tooltip": "Only used when crop_position is 'random'. The same seed always gives the same window, so a framing you liked can be reproduced; set control_after_generate to randomize for a new one each run."}),
-                "snap": ("BOOLEAN", {"default": False, "label_on": "snap to multiple_of", "label_off": "exact size",
-                                     "tooltip": "Off: you get exactly the size you asked for. On: the result is rounded to a multiple of multiple_of (e.g. 8 for SD, SDXL and Flux VAEs). ComfyUI's VAE Encode crops a few pixels itself when a size is not a multiple, so this is optional."}),
             },
         }
 
