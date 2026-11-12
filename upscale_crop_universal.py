@@ -462,6 +462,8 @@ class UpscaleCropUniversal:
             "required": {
                 "target_mode": (TARGET_MODES, {"default": "scale_factor",
                                                "tooltip": "How you want to ask for the size. The first five keep the aspect ratio. 'custom' takes a target_width x target_height box and gives you exactly that -- it covers the box and crops to it, so the resolution you type is the resolution you get. All of them work downwards as well as up."}),
+                "scale_factor": ("FLOAT", {"default": 2.0, "min": 0.05, "max": 8.0, "step": 0.05,
+                                           "tooltip": "Used by target_mode scale_factor. The same thing as percent, expressed the other way."}),
                 "method": (METHODS, {"default": "upscaler model",
                                      "tooltip": "How to resample. 'upscaler model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
                 "snap": ("BOOLEAN", {"default": False, "label_on": "snap to multiple_of", "label_off": "exact size",
@@ -476,8 +478,6 @@ class UpscaleCropUniversal:
                 "upscale_model": (models, {"tooltip": "Used when method is 'upscaler model'. Read straight from models/upscale_models -- no loader node needed. UltraSharp, Remacri, Siax and RealESRGAN are listed first if you have them, since they are the usual general-purpose picks."}),
                 "scale_percent": ("FLOAT", {"default": 200.0, "min": 1.0, "max": 800.0, "step": 5.0,
                                             "tooltip": "Used by target_mode scale_percent. 200 doubles, 50 halves."}),
-                "scale_factor": ("FLOAT", {"default": 2.0, "min": 0.05, "max": 8.0, "step": 0.05,
-                                           "tooltip": "Used by target_mode scale_factor. The same thing as percent, expressed the other way."}),
                 "shortest_side": ("INT", {"default": 1536, "min": 16, "max": 16384, "step": 8,
                                           "tooltip": "Used by target_mode shortest_side. Pins min(width, height); the other side follows the aspect ratio."}),
                 "longest_side": ("INT", {"default": 2048, "min": 16, "max": 16384, "step": 8,
