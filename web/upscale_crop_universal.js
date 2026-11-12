@@ -59,6 +59,7 @@ const OPTIONAL_DEFAULTS = {
     crop_offset_x: 0,
     crop_offset_y: 0,
     crop_seed: 0,
+    snap: false,
 };
 
 const COMBO_VALUES = {
@@ -77,7 +78,7 @@ const PREVIEW_WIDGETS = [
     "scale_percent", "scale_factor", "shortest_side", "longest_side", "megapixels",
     "target_width", "target_height",
     "crop", "crop_ratio", "crop_orientation",
-    "crop_position", "crop_offset_x", "crop_offset_y", "crop_seed",
+    "crop_position", "crop_offset_x", "crop_offset_y", "crop_seed", "snap",
 ];
 const PREVIEW_DEBOUNCE_MS = 120;
 const PREVIEW_MAX_H = 150;
@@ -201,6 +202,9 @@ function updateVisibility(node) {
     const customCrop = cropOn && !box && ratio === "custom";
     for (const name of BOX_WIDGETS) setVisible(node, name, box || customCrop);
 
+    // the multiple only means anything while snapping
+    setVisible(node, "multiple_of", widget(node, "snap")?.value === true);
+
     // the model picker only exists for method = model
     setVisible(node, "upscale_model", method === "upscaler model");
 
@@ -259,7 +263,7 @@ app.registerExtension({
             // Re-evaluate whenever one of the widgets that steers the others
             // changes. crop_ratio is in here because 'custom' swaps the
             // pixel fields in for the orientation combo.
-            for (const name of ["target_mode", "method", "crop", "crop_ratio", "crop_position"]) {
+            for (const name of ["target_mode", "method", "crop", "crop_ratio", "crop_position", "snap"]) {
                 const w = widget(this, name);
                 if (!w) continue;
                 const orig = w.callback;

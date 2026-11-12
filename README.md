@@ -103,10 +103,9 @@ largest window of that shape out of whatever the upscale produced. Ask both for
 3000×3000 from a portrait source and only the target mode gives you a 3000×3000
 square.
 
-`multiple_of` snaps the result so it survives a VAE. Type any number — **8** suits
-SD, SDXL and Flux, **64** some tiling and video workflows. **Under 1 switches snapping
-off** and gives you the exact size you asked for, which is fine when the image is going
-straight to disk.
+By default you get **exactly the size you asked for**. Switch **`snap`** on to round the
+result to `multiple_of` instead — **8** suits SD, SDXL and Flux, **64** some tiling and
+video workflows. It is optional: ComfyUI's VAE Encode crops the few odd pixels itself.
 
 ## The crop stage
 

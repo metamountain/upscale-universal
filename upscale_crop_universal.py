@@ -421,8 +421,8 @@ class UpscaleCropUniversal:
         "own dimensions rather than assuming the latent is the image divided by eight, "
         "and the crop is applied in normalised coordinates so the two come out framed "
         "identically. Connect either or both.\n\n"
-        "multiple_of snaps the result so it survives a VAE -- 8 suits SD, SDXL and "
-        "Flux; set it to off only when the image is going straight to disk.\n\n"
+        "EXACT SIZE BY DEFAULT. With snap off you get exactly the size you asked for. "
+        "Switch snap on to round the result to multiple_of (8 suits SD, SDXL and Flux).\n\n"
         "IF NOTHING SEEMS TO HAPPEN. Only the widgets that currently apply are "
         "shown, so switching target_mode swaps the size field and switching method "
         "away from 'upscaler model' hides the model picker -- a value you set earlier is not "
@@ -465,7 +465,7 @@ class UpscaleCropUniversal:
                 "method": (METHODS, {"default": "upscaler model",
                                      "tooltip": "How to resample. 'upscaler model' uses the upscale_model below; the rest are plain kernels. lanczos is the sharpest non-model choice, area the best for heavy downscaling."}),
                 "multiple_of": ("INT", {"default": 8, "min": 1, "max": 512, "step": 1,
-                                        "tooltip": "Snap the result to a multiple of this, so it survives a VAE. 8 suits SD, SDXL and Flux; 64 for some tiling and video workflows; any number you like. 1 switches it off and gives you the exact size you asked for -- fine when the image goes straight to disk."}),
+                                        "tooltip": "Used when snap is on: the result is rounded to a multiple of this. 8 suits SD, SDXL and Flux; 64 for some tiling and video workflows."}),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
             "optional": {
@@ -505,6 +505,8 @@ class UpscaleCropUniversal:
                 "crop_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
                                       "control_after_generate": True,
                                       "tooltip": "Only used when crop_position is 'random'. The same seed always gives the same window, so a framing you liked can be reproduced; set control_after_generate to randomize for a new one each run."}),
+                "snap": ("BOOLEAN", {"default": False, "label_on": "snap to multiple_of", "label_off": "exact size",
+                                     "tooltip": "Off: you get exactly the size you asked for. On: the result is rounded to a multiple of multiple_of (e.g. 8 for SD, SDXL and Flux VAEs). ComfyUI's VAE Encode crops a few pixels itself when a size is not a multiple, so this is optional."}),
             },
         }
 
@@ -520,7 +522,7 @@ class UpscaleCropUniversal:
             target_width=1920, target_height=1080,
             crop=False, crop_ratio="4:5", crop_orientation="auto",
             crop_position="center", crop_offset_x=0, crop_offset_y=0,
-            crop_seed=0, unique_id=None):
+            crop_seed=0, snap=False, unique_id=None):
 
         # ComfyUI's frontend can send an untouched optional widget as an
         # explicit None instead of omitting it, which otherwise blows up in
@@ -551,7 +553,7 @@ class UpscaleCropUniversal:
         if unique_id is not None:
             _remember(unique_id, image, samples)
 
-        mult = _as_mult(multiple_of)
+        mult = _as_mult(multiple_of) if snap else 0.0     # 0 = no snapping
         notes = []
 
         # Both box modes scale to cover target_width x target_height. Only
@@ -783,7 +785,7 @@ def _preview(data, cached):
 
     mode = txt("target_mode", "scale_factor", TARGET_MODES)
     method = txt("method", "upscaler model", METHODS)
-    mult = _as_mult(data.get("multiple_of", 8))
+    mult = _as_mult(data.get("multiple_of", 8)) if data.get("snap") is True else 0.0
 
     box = None
     exact_box = None

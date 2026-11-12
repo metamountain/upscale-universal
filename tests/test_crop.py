@@ -62,7 +62,7 @@ def test_custom_uses_the_given_pixels():
 def test_custom_pixels_still_obey_multiple_of():
     """900 is not a multiple of 8, so it must come back snapped, not exact."""
     w, h, _ = _crop(crop_ratio="custom", target_width=1200, target_height=900,
-                    multiple_of=8)
+                    multiple_of=8, snap=True)
     assert (w, h) == (1200, 896), (w, h)
 
 
@@ -93,7 +93,7 @@ def test_all_anchors_run_and_keep_the_size():
 
 def test_crop_output_respects_multiple_of():
     for m in [8, 16, 64]:
-        w, h, _ = _crop(crop_ratio="DIN", crop_orientation="portrait", multiple_of=int(m))
+        w, h, _ = _crop(crop_ratio="DIN", crop_orientation="portrait", multiple_of=int(m), snap=True)
         assert w % int(m) == 0 and h % int(m) == 0, (m, w, h)
 
 

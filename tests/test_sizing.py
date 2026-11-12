@@ -66,7 +66,7 @@ def test_multiple_of_is_always_satisfied():
         for mode, kw in [("scale_factor", dict(scale_factor=1.37)),
                          ("shortest_side", dict(shortest_side=999)),
                          ("megapixels", dict(megapixels=1.3))]:
-            w, h, _ = _out(target_mode=mode, multiple_of=m, **kw)
+            w, h, _ = _out(target_mode=mode, multiple_of=m, snap=True, **kw)
             assert w % int(m) == 0 and h % int(m) == 0, (m, mode, w, h)
 
 

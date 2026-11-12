@@ -51,13 +51,17 @@ def test_the_box_obeys_multiple_of():
     """900 sits exactly halfway between 896 and 904, and Python rounds a tie
     to even -- 112.5 -> 112 -> 896. Worth pinning so a future refactor to
     round-half-up is noticed rather than silently shifting everyone's crops."""
-    w, h, _ = _box(1000, 900, multiple_of=8)
+    w, h, _ = _box(1000, 900, multiple_of=8, snap=True)
     assert w % 8 == 0 and h % 8 == 0, (w, h)
     assert (w, h) == (1000, 896), (w, h)
 
     # away from a tie there is nothing to argue about
-    assert _box(1000, 902, multiple_of=8)[:2] == (1000, 904)
-    assert _box(1000, 899, multiple_of=8)[:2] == (1000, 896)
+    assert _box(1000, 902, multiple_of=8, snap=True)[:2] == (1000, 904)
+    assert _box(1000, 899, multiple_of=8, snap=True)[:2] == (1000, 896)
+
+
+def test_snap_off_ignores_multiple_of():
+    assert _box(1366, 769, multiple_of=8)[:2] == (1366, 769)
 
 
 def test_multiple_of_off_gives_the_literal_box():
@@ -196,7 +200,7 @@ def test_custom_obeys_multiple_of():
     for m in ["8", "64"]:
         r = run(mod, image=image(1024, 1536), method="lanczos",
                 target_mode="custom", target_width=1000, target_height=1000,
-                multiple_of=int(m))
+                multiple_of=int(m), snap=True)
         w, h = int(r[0].shape[2]), int(r[0].shape[1])
         assert w % int(m) == 0 and h % int(m) == 0, (m, w, h)
 
